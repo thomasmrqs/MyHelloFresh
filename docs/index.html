@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Menus et courses</title>
+  <meta name="description" content="Menu de la semaine à composer d'un swipe, et liste de courses à partager.">
+  <meta name="theme-color" content="#2f7d4f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Menus">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1 id="title">Menus</h1>
+    <p id="subtitle"></p>
+  </header>
+  <main id="view" aria-live="polite"></main>
+  <nav class="tabs" aria-label="Sections">
+    <button data-tab="menu" class="tab"><span aria-hidden="true">🍽️</span>Menu</button>
+    <button data-tab="courses" class="tab"><span aria-hidden="true">🛒</span>Courses</button>
+    <button data-tab="recettes" class="tab"><span aria-hidden="true">📖</span>Recettes</button>
+  </nav>
+  <div id="toast" role="status"></div>
+  <script src="recipes.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
