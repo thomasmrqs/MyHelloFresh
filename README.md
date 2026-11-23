@@ -13,7 +13,7 @@ Tout reste sur le téléphone : pas de serveur, pas de compte, gratuit. L'app ma
 
 1. Sur GitHub, dans le dépôt : **Settings → General → Danger Zone → Change visibility → Public**.
 2. **Settings → Pages** : Source « Deploy from a branch », branche `main`, dossier `/docs`, puis **Save**.
-3. Après une minute, l'app est sur `https://thomasmrqs.github.io/myhellofresh/`.
+3. Après une minute, l'app est sur `https://thomasmrqs.github.io/MyHelloFresh/`.
 
 ## Installer sur iPhone
 
