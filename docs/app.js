@@ -110,7 +110,7 @@
   function freshState(week) {
     return { week: week || defaultWeek(), kept: [], deck: buildDeck([]), plan: null, list: null, extras: [], weekEdits: {} };
   }
-  function save() { store.set("state", S); store.set("prefs", prefs); }
+  function save() { store.set("state", S); store.set("prefs", prefs); if (window.FamilySync) window.FamilySync.changed(); }
 
   function buildDeck(kept) {
     const recent = new Set(prefs.history.slice(-1).flat());
@@ -127,18 +127,35 @@
       .map((x) => x.id);
   }
 
+  // ---------- Équilibre (nutrition.js) ----------
+  const nutri = (r) => window.nutriOf(r);
+  const balanceOf = (ids, n) => window.nutriBalance(ids.filter((id) => byId[id]), n, (id) => byId[id]);
+  const fitsMax = (r, bal) => bal.every((b) => !(b.max < Infinity && b.n >= b.max && nutri(r).has(b.key)));
+  const fills = (r, rules) => rules.some((b) => nutri(r).has(b.key));
+  const needLabel = (rules) => rules.map((b) => b.need || b.label.toLowerCase()).join(", ").replace(/, ([^,]*)$/, " et $1");
+
   // Le prochain plat de la pile qui reste compatible avec ce qu'on a déjà gardé.
+  // Quand il reste juste assez de plats à choisir pour équilibrer la semaine (légumes, poisson…),
+  // seuls les plats qui comblent un manque sont proposés : nextCard.forced dit lesquels.
   function nextCard() {
     const freshFish = S.kept.filter((id) => byId[id].tags.includes("poissonnier")).length;
-    const red = S.kept.filter((id) => byId[id].tags.includes("viandeRouge")).length;
-    for (const id of S.deck) {
-      const r = byId[id];
-      if (!r || !isDish(r) || isOff(r)) continue;
-      if (r.tags.includes("poissonnier") && freshFish >= FISH_DAYS.length) continue;
-      if (r.tags.includes("viandeRouge") && red >= 3) continue;
-      return r;
+    const bal = balanceOf(S.kept, prefs.target);
+    const missing = bal.filter((b) => b.missing > 0);
+    const slots = prefs.target - S.kept.length;
+    const deficit = missing.reduce((n, b) => n + b.missing, 0);
+    // Les catégories rares (poisson, légumineuses…) passent avant celles que presque tous les plats ont (légumes).
+    const pool = RECIPES.filter((r) => isDish(r) && !isOff(r));
+    const rare = missing.filter((b) => pool.filter((r) => nutri(r).has(b.key)).length < pool.length / 2);
+    const rareDeficit = rare.reduce((n, b) => n + b.missing, 0);
+    const forced = slots <= 0 || !missing.length ? null : rare.length && rareDeficit >= slots ? rare : deficit >= slots ? missing : null;
+    const ok = (r) => r && isDish(r) && !isOff(r) && !(r.tags.includes("poissonnier") && freshFish >= FISH_DAYS.length) && fitsMax(r, bal);
+    nextCard.forced = null;
+    if (forced) {
+      const id = S.deck.find((x) => ok(byId[x]) && fills(byId[x], forced));
+      if (id) { nextCard.forced = forced; return byId[id]; }
     }
-    return null;
+    const id = S.deck.find((x) => ok(byId[x]));
+    return id ? byId[id] : null;
   }
 
   function decide(keep) {
@@ -214,17 +231,41 @@
     }
   }
 
+  // Bilan du menu : règles de nutrition.js sur les dîners de la semaine.
   function balance(plan) {
     const ids = plan.dinners.filter(Boolean);
-    const count = (t) => ids.filter((id) => byId[id].tags.includes(t)).length;
-    const leg = count("legumineuses") + plan.lunches.filter((l) => l && l.src !== "reste" && byId[l.id].tags.includes("legumineuses")).length;
-    return [
-      { label: "Poisson", n: count("poisson"), ok: count("poisson") >= 2, goal: "2 par semaine" },
-      { label: "Légumineuses", n: leg, ok: leg >= 2, goal: "2 par semaine" },
-      { label: "Végétarien", n: count("vege"), ok: count("vege") >= 1, goal: "au moins 1" },
-      { label: "Viande rouge", n: count("viandeRouge"), ok: count("viandeRouge") <= 2, goal: "2 au plus" },
-      { label: "Fromage", n: count("fromage"), ok: count("fromage") >= 3, goal: "au moins 3" },
-    ];
+    return balanceOf(ids, Math.max(3, ids.length));
+  }
+  const balanceChips = (bal) => bal.map((b) => `<span class="chip ${b.ok ? "ok" : "warn"}" title="${esc(b.goal)}">${b.emoji} ${esc(b.label)} ${b.n}${b.min ? "/" + b.min : ""}${b.ok ? " ✓" : ""}</span>`).join("");
+
+  // Pour un menu déséquilibré : des plats qui comblent un manque, et le soir où les mettre.
+  function balanceFixes(plan) {
+    const bal = balance(plan);
+    const n = Math.max(3, plan.dinners.filter(Boolean).length);
+    const fixes = [];
+    for (const b of bal.filter((x) => x.missing > 0)) {
+      const used = new Set(plan.dinners.filter(Boolean));
+      // Le soir à remplacer : un soir libre, sinon un plat qui n'apporte rien de ce qui manque
+      // et dont le retrait ne crée pas d'autre manque (celui avec le moins de légumes d'abord).
+      const days = plan.dinners.map((id, d) => ({ id, d })).filter(({ id }) => !id || !nutri(byId[id]).has(b.key))
+        .filter(({ id, d }) => {
+          if (!id) return true;
+          const after = balanceOf(plan.dinners.filter((x, i) => x && i !== d), n);
+          return bal.every((was, k) => !was.min || was.n < was.min || after[k].n >= was.min);
+        })
+        .sort((x, y) => (x.id ? 1 : 0) - (y.id ? 1 : 0) || (x.id && nutri(byId[x.id]).has("legumes") ? 1 : 0) - (y.id && nutri(byId[y.id]).has("legumes") ? 1 : 0));
+      if (!days.length) continue;
+      const pick = RECIPES.filter((r) => isDish(r) && !isOff(r) && !used.has(r.id) && nutri(r).has(b.key))
+        .sort((x, y) => (y.tmx ? 3 : y.url ? 2 : 0) + y.love - ((x.tmx ? 3 : x.url ? 2 : 0) + x.love));
+      const out = [];
+      for (const r of pick) {
+        const day = days.find(({ d }) => !r.tags.includes("poissonnier") || FISH_DAYS.includes(d));
+        if (day) out.push({ r, day });
+        if (out.length >= 3) break;
+      }
+      fixes.push({ rule: b, options: out });
+    }
+    return fixes;
   }
 
   // ---------- Liste de courses ----------
@@ -351,6 +392,14 @@
   }
 
   async function readHash() {
+    const inv = location.hash.match(/^#famille=([A-Za-z0-9]+)(?:@([a-z0-9.-]+))?$/);
+    if (inv && Sync) {
+      history.replaceState(null, "", location.pathname);
+      if (Sync.code === inv[1]) { tab = "sync"; return; }
+      joinOffer = { code: inv[1], db: inv[2] ? "https://" + inv[2] : null };
+      tab = "sync";
+      return;
+    }
     const m = location.hash.match(/^#l=([A-Za-z0-9_-]+)$/);
     if (!m) return;
     try {
@@ -371,14 +420,115 @@
     }
   }
 
+  // ---------- Synchronisation entre les téléphones (sync.js) ----------
+  const Sync = window.FamilySync || null;
+  let checks = {}; // cases cochées de la liste partagée
+  let pendingRender = false, joinOffer = null;
+  const busy = () => !!draft || !!$(".swipe.dragging") || !!(document.activeElement && document.activeElement.matches("input:not([type=checkbox]), select, textarea"));
+  function remoteRender() {
+    if (busy()) { pendingRender = true; return; }
+    pendingRender = false;
+    render();
+  }
+  const syncHooks = {
+    getMenu: () => ({ week: S.week, kept: S.kept, deck: S.deck, plan: S.plan, extras: S.extras || [], weekEdits: S.weekEdits || {},
+      prefs: { excluded: prefs.excluded, included: prefs.included, history: prefs.history, target: prefs.target } }),
+    getList: () => (S.list ? { week: S.list.week, items: S.list.items.map(({ done, ...i }) => i), removed: S.list.removed || [] } : null),
+    getChecks: () => Object.fromEntries((S.list ? S.list.items : []).map((i) => [i.key, !!i.done])),
+    applyMenu(d) {
+      const keepList = S.list;
+      S = { ...freshState(d.week), ...d, list: keepList };
+      Object.assign(prefs, d.prefs || {});
+      lastDecision = null;
+      useWeekEdits();
+      store.set("state", S); store.set("prefs", prefs);
+    },
+    applyList(d) {
+      S.list = d ? { week: d.week, items: (d.items || []).map((i) => ({ ...i, done: !!checks[i.key] })), removed: d.removed || [] } : null;
+      store.set("state", S);
+    },
+    applyChecks(map) {
+      checks = map;
+      if (!S.list) return false;
+      let changed = false;
+      for (const i of S.list.items) if (!!checks[i.key] !== !!i.done) { i.done = !!checks[i.key]; changed = true; }
+      if (changed) store.set("state", S);
+      return changed;
+    },
+    onChange: remoteRender,
+    onStatus: () => { updateSyncBtn(); if (tab === "sync") remoteRender(); },
+  };
+  document.addEventListener("focusout", () => setTimeout(() => { if (pendingRender && !busy()) remoteRender(); }, 50));
+
+  const SYNC_STATUS = {
+    unconfigured: ["", "Pas encore activée"], off: ["", "Pas connecté"], connecting: ["⏳", "Connexion…"],
+    ok: ["✓", "Synchronisé"], offline: ["⚠️", "Hors connexion, envoi au retour du réseau"], error: ["⚠️", "Accès refusé par la base"],
+  };
+  function updateSyncBtn() {
+    const b = $("#sync-btn");
+    if (!b) return;
+    const st = Sync ? Sync.status : "unconfigured";
+    b.dataset.status = st;
+    b.setAttribute("aria-label", "Synchronisation : " + SYNC_STATUS[st][1]);
+    $(".dot", b).textContent = SYNC_STATUS[st][0];
+  }
+
+  function renderSync() {
+    setHeader("Synchronisation", "Le menu et la liste de courses sur tous vos téléphones");
+    const st = Sync ? Sync.status : "unconfigured";
+    let body = "";
+    if (joinOffer) {
+      body = `<div class="card stack"><p><b>Rejoindre la famille ?</b></p>
+        <p class="small muted">Le menu et la liste de courses de ce téléphone seront remplacés par ceux de la famille, puis tenus à jour automatiquement.</p>
+        <button class="btn primary block" data-act="sync-join-offer">Rejoindre</button>
+        <button class="btn ghost block" data-act="sync-cancel">Annuler</button></div>`;
+    } else if (!Sync || !Sync.configured) {
+      body = `<div class="card stack"><p>La synchronisation n'est pas encore activée : il faut l'adresse de la base de données Firebase de la famille.</p>
+        <form class="addbar" data-act="sync-db"><input name="db" placeholder="https://…firebasedatabase.app" autocomplete="off" inputmode="url">
+          <button class="btn primary" type="submit">OK</button></form>
+        <p class="small muted">Ou ouvrez le lien d'invitation envoyé depuis un téléphone déjà synchronisé.</p></div>`;
+    } else if (!Sync.code) {
+      body = `<div class="card stack">
+        <p><b>Premier téléphone</b> : créez la synchro de la famille. Le menu et la liste de ce téléphone sont envoyés.</p>
+        <button class="btn primary block" data-act="sync-create">Créer la synchro de la famille</button></div>
+        <div class="card stack" style="margin-top:12px">
+        <p><b>Autre téléphone</b> : collez le code reçu (ou ouvrez le lien d'invitation).</p>
+        <form class="addbar" data-act="sync-join"><input name="code" placeholder="Code de la famille" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button class="btn primary" type="submit">Rejoindre</button></form></div>`;
+    } else {
+      body = `<div class="card stack">
+        <p class="sync-state" data-status="${st}">${SYNC_STATUS[st][0]} ${esc(SYNC_STATUS[st][1])}</p>
+        <p class="small muted">Chaque changement du menu ou de la liste, et chaque article coché, apparaît sur les autres téléphones.</p>
+        <button class="btn primary block" data-act="sync-invite">📤 Inviter un autre téléphone</button>
+        <button class="btn block" data-act="sync-copy">Copier le code de la famille</button>
+        <p class="small muted">Sur iPhone, l'app installée sur l'écran d'accueil ne voit pas les liens ouverts dans Safari : ouvrez l'app, touchez ☁️, puis collez le code dans « Rejoindre ».</p>
+        <button class="btn ghost block" data-act="sync-leave" id="sync-leave">Déconnecter ce téléphone</button></div>`;
+    }
+    view.innerHTML = body;
+  }
+
+  async function syncAction(act, t) {
+    try {
+      if (act === "sync-create") { await Sync.create(); toast("Synchro créée. Invitez l'autre téléphone."); }
+      else if (act === "sync-join-offer") { await Sync.join(joinOffer.code, joinOffer.db); joinOffer = null; toast("Téléphone synchronisé avec la famille."); }
+      else if (act === "sync-join") { await Sync.join(t.code.value); toast("Téléphone synchronisé avec la famille."); }
+    } catch (e) {
+      toast(e.message === "code" ? "Ce code n'est pas valide." : e.message === "unknown" ? "Aucune famille avec ce code." : e.message === "db" ? "Adresse de base de données invalide." : "Pas de réseau ou accès refusé. Réessayez.");
+    }
+    render();
+  }
+
   // ---------- Rendu ----------
   const view = $("#view");
   function setHeader(title, sub) { $("#title").textContent = title; $("#subtitle").textContent = sub || ""; }
 
   function render() {
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"));
+    pendingRender = false;
+    updateSyncBtn();
     if (tab === "menu") renderMenu();
     else if (tab === "courses") renderCourses();
+    else if (tab === "sync") renderSync();
     else renderRecipes();
   }
 
@@ -396,7 +546,7 @@
     const r = nextCard();
     const bar = Array.from({ length: prefs.target }, (_, i) => `<i class="${i < S.kept.length ? "on" : ""}"></i>`).join("");
     if (!r) {
-      view.innerHTML = weekNav() + `<div class="empty"><div class="big">🤷</div><p>Plus de plats à proposer.</p>
+      view.innerHTML = weekNav() + `<div class="chips" style="margin:8px 0">${balanceChips(balanceOf(S.kept, prefs.target))}</div><div class="empty"><div class="big">🤷</div><p>Plus de plats à proposer.</p>
         <button class="btn primary" data-act="build-now">Faire le menu avec ${S.kept.length} plats</button></div>`;
       return;
     }
@@ -404,7 +554,8 @@
     view.innerHTML = weekNav() + `
       <div class="row small muted"><span class="grow">${S.kept.length} plat${S.kept.length > 1 ? "s" : ""} sur ${prefs.target} pour les dîners</span></div>
       <div class="progress" aria-hidden="true">${bar}</div>
-      ${S.kept.length ? `<div class="chips" style="margin-bottom:12px">${balance({ dinners: S.kept, lunches: [] }).map((b) => `<span class="chip ${b.ok ? "ok" : "warn"}">${b.label} ${b.n}</span>`).join("")}</div>` : ""}
+      <div class="chips" style="margin-bottom:12px">${balanceChips(balanceOf(S.kept, prefs.target))}</div>
+      ${nextCard.forced ? `<div class="notice">⚖️ Pour une semaine équilibrée, il manque ${esc(needLabel(nextCard.forced))} : seuls les plats qui en apportent sont proposés.</div>` : ""}
       <div class="deck">
         ${under ? cardHtml(under, "under") : ""}
         ${cardHtml(r, "top")}
@@ -424,8 +575,8 @@
   }
 
   function tagChips(r) {
-    const map = { fromage: "🧀 Fromage", poisson: "🐟 Poisson", legumineuses: "🫘 Légumineuses", vege: "🥦 Végétarien", viandeRouge: "🥩 Viande rouge" };
-    const chips = r.tags.filter((t) => map[t]).map((t) => `<span class="chip">${map[t]}</span>`);
+    const L = window.NUTRI_LABELS;
+    const chips = isDish(r) ? Object.keys(L).filter((k) => nutri(r).has(k)).map((k) => `<span class="chip nutri">${L[k].emoji} ${esc(L[k].label)}</span>`) : [];
     if (r.love === 2) chips.unshift(`<span class="chip ok">★ Préféré</span>`);
     if (r.tmx) chips.unshift(`<span class="chip tmx">Thermomix</span>`);
     if (r.url) chips.unshift(`<span class="chip tmx">${esc(r.source || "Web")} ★ ${esc(r.rating || "")}</span>`);
@@ -498,7 +649,18 @@
   function renderPlan() {
     const p = S.plan;
     setHeader("Menu de la semaine", weekLabel(S.week));
-    const chips = balance(p).map((b) => `<span class="chip ${b.ok ? "ok" : "warn"}" title="${b.goal}">${b.label} ${b.n}</span>`).join("");
+    const bal = balance(p);
+    const chips = balanceChips(bal);
+    const fixes = balanceFixes(p);
+    const over = bal.filter((b) => b.over > 0);
+    const fixHtml = fixes.length || over.length ? `<div class="balance-box">
+        <strong>⚖️ Pour équilibrer la semaine</strong>
+        ${fixes.map((f) => `<p class="small">Il manque ${f.rule.missing > 1 ? f.rule.missing + " plats" : "un plat"} avec <b>${esc(f.rule.label.toLowerCase())}</b> (${esc(f.rule.why)}).</p>
+          <div class="stack">${f.options.map(({ r, day }) => `<button class="btn fix" data-act="fix" data-id="${r.id}" data-day="${day.d}">
+            ${r.emoji} ${esc(r.name)}<span class="small muted"> · le ${DAYS[day.d].toLowerCase()}${day.id ? " à la place de " + esc(byId[day.id].name) : ""}</span></button>`).join("") || `<p class="small muted">Changez un dîner avec ✎.</p>`}</div>`).join("")}
+        ${over.map((b) => `<p class="small">Trop de <b>${esc(b.label.toLowerCase())}</b> : ${b.n} pour ${b.max} au plus. Remplacez un de ces plats avec ✎.</p>`).join("")}
+      </div>` : `<p class="small" style="color:var(--accent)">✓ Menu équilibré : légumes, poisson, légumineuses et un soir végétarien.</p>`;
+    const missingLeg = bal.find((b) => b.key === "legumes" && b.missing > 0);
     const days = p.dinners.map((id, d) => {
       const r = id && byId[id];
       const warns = [];
@@ -537,11 +699,13 @@
         <button class="del" data-act="extra" data-id="${id}" aria-label="Retirer ${esc(byId[id].name)}">✕</button></div>`).join("")}</div>`
         : `<p class="small muted">Ajoutez un gâteau, des crêpes ou une purée depuis l'onglet Recettes : ses ingrédients iront dans la liste de courses.</p>`}`;
     view.innerHTML = `
-      <div class="chips" style="margin-bottom:12px">${chips}</div>
+      <div class="chips" style="margin-bottom:8px">${chips}</div>
+      ${fixHtml}
       ${days}
       ${extrasHtml}
       <div class="stack" style="margin-top:16px">
-        <button class="btn primary block" data-act="make-list">🛒 ${S.list ? "Mettre à jour la liste de courses" : "Faire la liste de courses"}</button>
+        ${missingLeg ? `<button class="btn block" data-act="make-list" data-force="1">Il manque des légumes : choisissez un plat ci-dessus.<br><span class="small muted">Ou touchez ici deux fois pour faire la liste quand même</span></button>`
+          : `<button class="btn primary block" data-act="make-list">🛒 ${S.list ? "Mettre à jour la liste de courses" : "Faire la liste de courses"}</button>`}
         <button class="btn ghost block" data-act="reset" id="reset">Recommencer un nouveau menu</button>
       </div>`;
   }
@@ -570,7 +734,7 @@
     const share = mine ? `<div class="sharebar">
         <button class="btn primary" data-act="share">📤 Partager la liste</button>
         <button class="btn" data-act="copy-text">Copier en texte</button></div>
-        <p class="small muted">Le lien ouvre la liste sur l'autre téléphone. Après une modification, renvoyez un nouveau lien.</p>`
+        <p class="small muted">${Sync && Sync.code ? "☁️ Liste synchronisée : les articles cochés apparaissent sur les autres téléphones de la famille. Le lien sert à la partager avec quelqu'un d'autre." : "Le lien ouvre la liste sur l'autre téléphone. Après une modification, renvoyez un nouveau lien. Pour une liste toujours à jour sur vos téléphones, touchez ☁️ en haut."}</p>`
       : `<p class="small muted">Liste reçue par lien. Cochez au fur et à mesure, c'est gardé sur ce téléphone.</p>
         <div class="sharebar"><button class="btn" data-act="copy-text">Copier en texte</button></div>`;
 
@@ -599,6 +763,7 @@
   const FILTERS = [
     ["all", "Tout"], ["tmx", "Thermomix"], ["plat", "Plats"], ["accompagnement", "Accomp."], ["dessert", "Desserts"],
   ];
+  const NUTRI_FILTERS = ["legumes", "poisson", "legumineuses", "vege", "viandeBlanche", "viandeRouge"].filter((k) => window.NUTRI_LABELS[k]);
   const kindLabel = { accompagnement: "Accompagnement", dessert: "Dessert, goûter", base: "Base (pâte, sauce)" };
   let draft = null; // recette en cours de modification : { id, ing, side }
   const openRecipes = new Set();
@@ -669,12 +834,14 @@
       if (f === "plat" && !isDish(r)) return false;
       if (f === "accompagnement" && !["accompagnement", "base"].includes(r.kind)) return false;
       if (f === "dessert" && r.kind !== "dessert") return false;
+      if (window.NUTRI_LABELS[f] && !(isDish(r) && nutri(r).has(f))) return false;
       return !q || r.name.toLowerCase().includes(q) || [...r.ing, ...(r.side || [])].some((i) => i[0].toLowerCase().includes(q));
     };
     // Thermomix d'abord, puis ordre alphabétique.
     const list = RECIPES.filter(match).sort((a, b) => (b.tmx ? 1 : 0) - (a.tmx ? 1 : 0) || a.name.localeCompare(b.name, "fr"));
     view.innerHTML = `<input class="search" type="search" placeholder="Chercher un plat ou un ingrédient" value="${esc(renderRecipes.q || "")}" data-act="search">
       <div class="seg filters" role="group" aria-label="Filtrer">${FILTERS.map(([k, l]) => `<button data-act="filter" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>
+      <div class="chips nutri-filters" role="group" aria-label="Filtrer par catégorie">${NUTRI_FILTERS.map((k) => `<button class="chip ${f === k ? "ok" : ""}" data-act="filter" data-f="${f === k ? "all" : k}" aria-pressed="${f === k}">${window.NUTRI_LABELS[k].emoji} ${esc(window.NUTRI_LABELS[k].label)}</button>`).join("")}</div>
       ${nEdits ? `<div class="notice">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} adaptée${nEdits > 1 ? "s" : ""} pour le menu en cours.</div>` : ""}
       ${list.map((r) => {
         const editing = draft && draft.id === r.id;
@@ -745,6 +912,11 @@
       case "week-prev": S.week = shiftWeek(S.week, -1); break;
       case "week-next": S.week = shiftWeek(S.week, 1); break;
       case "build-now": if (S.kept.length) S.plan = buildPlan(S.kept); break;
+      case "fix":
+        S.plan.dinners[d] = t.dataset.id;
+        fillLunches(S.plan);
+        toast(`${byId[t.dataset.id].name} : ajouté le ${DAYS[d].toLowerCase()}.`);
+        break;
       case "up": case "down": {
         const o = act === "up" ? d - 1 : d + 1;
         const ds = S.plan.dinners;
@@ -753,6 +925,7 @@
         break;
       }
       case "make-list":
+        if (t.dataset.force && !t.dataset.armed) { t.dataset.armed = "1"; t.innerHTML = "Touchez encore pour faire la liste sans assez de légumes"; return; }
         S.list = buildList(S.plan, S.list);
         S.list.week = S.week;
         coursesView = "mine";
@@ -768,6 +941,20 @@
         useWeekEdits();
         break;
       case "go-menu": tab = "menu"; break;
+      case "go-sync": tab = tab === "sync" ? "menu" : "sync"; break;
+      case "sync-create": case "sync-join-offer": syncAction(act, t); return;
+      case "sync-cancel": joinOffer = null; tab = "menu"; break;
+      case "sync-invite": {
+        const link = Sync.inviteLink();
+        const text = `Menus de la famille : ouvrez ce lien, ou dans l'app touchez ☁️ et collez ce code : ${Sync.code}`;
+        if (navigator.share) { navigator.share({ title: "Menus de la famille", text, url: link }).catch(() => {}); return; }
+        copy(text + "\n" + link, "Invitation copiée : collez-la dans un message.");
+        return;
+      }
+      case "sync-copy": copy(Sync.code, "Code copié."); return;
+      case "sync-leave":
+        if (!t.dataset.armed) { t.dataset.armed = "1"; t.textContent = "Touchez encore pour déconnecter ce téléphone"; t.classList.remove("ghost"); return; }
+        Sync.leave(); toast("Ce téléphone n'est plus synchronisé."); break;
       case "view-mine": coursesView = "mine"; break;
       case "view-shared": coursesView = "shared"; break;
       case "share": shareLink(); return;
@@ -850,6 +1037,7 @@
       const it = l.items.find((i) => i.key === t.dataset.key);
       if (it) it.done = t.checked;
       persistList();
+      if (Sync && coursesView === "mine") Sync.tick(t.dataset.key, t.checked);
       t.closest(".item").classList.toggle("done", t.checked);
       const left = l.items.filter((i) => !i.done && i.rayon !== "placard").length;
       $("#subtitle").textContent = `${weekLabel(coursesView === "shared" ? shared.week : S.week)} · ${left} article${left > 1 ? "s" : ""} à prendre`;
@@ -867,6 +1055,13 @@
   });
 
   document.addEventListener("submit", (e) => {
+    const f = e.target;
+    if (f.dataset.act === "sync-join") { e.preventDefault(); syncAction("sync-join", f); return; }
+    if (f.dataset.act === "sync-db") {
+      e.preventDefault();
+      if (Sync && Sync.setDb(f.db.value)) { toast("Base de données enregistrée."); render(); } else toast("Adresse invalide : elle finit par firebasedatabase.app ou firebaseio.com.");
+      return;
+    }
     if (e.target.dataset.act !== "add") return;
     e.preventDefault();
     const v = e.target.item.value.trim();
@@ -908,5 +1103,5 @@
 
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
   if ((!S.plan && S.list) || (shared && !S.list && !S.kept.length)) tab = "courses";
-  readHash().then(render);
+  readHash().then(() => { render(); if (Sync) Sync.init(syncHooks); });
 })();

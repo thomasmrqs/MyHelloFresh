@@ -214,3 +214,26 @@ details.menu-recap summary { cursor: pointer; color: var(--accent); font-weight:
 .notice .btn { min-height: 36px; padding: 6px 12px; }
 .swipe .adapt { align-self: flex-start; margin-top: 8px; padding-left: 0; color: var(--accent); }
 .linkbtn { border: 0; background: none; padding: 4px 0; color: var(--accent); font-size: 13px; font-weight: 600; }
+
+/* Équilibre des menus */
+.balance-box { background: var(--warn-soft); border-radius: 14px; padding: 12px; margin: 0 0 12px; }
+.balance-box strong { color: var(--warn); }
+.balance-box p { margin: 8px 0 6px; }
+.btn.fix { text-align: left; width: 100%; justify-content: flex-start; }
+.nutri-filters { margin: -4px 0 12px; }
+.nutri-filters .chip { border: 0; cursor: pointer; }
+
+/* Synchronisation */
+.top { position: relative; padding-right: 64px; }
+.sync-btn {
+  position: absolute; right: 16px; top: calc(12px + env(safe-area-inset-top));
+  border: 1px solid var(--line); background: var(--card); border-radius: 999px;
+  min-width: 44px; height: 44px; padding: 0 10px; font-size: 18px; display: flex; align-items: center; gap: 2px;
+}
+.sync-btn .dot { font-size: 12px; }
+.sync-btn[data-status="ok"] { border-color: var(--accent); }
+.sync-btn[data-status="unconfigured"], .sync-btn[data-status="off"] { opacity: .6; }
+.sync-state { font-weight: 600; margin: 0; }
+.sync-state[data-status="ok"] { color: var(--accent); }
+.sync-state[data-status="offline"], .sync-state[data-status="error"] { color: var(--warn); }
+.card.stack p { margin: 0; }

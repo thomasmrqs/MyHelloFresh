@@ -9,7 +9,28 @@ Une petite app web (PWA) à installer sur l'écran d'accueil de l'iPhone :
 - **Tableau de recettes** : la base de recettes vit dans le tableau Claude « Base de recettes de la famille ». Les changements permanents (remplacer, supprimer un ingrédient, changer une quantité) s'écrivent dans la colonne Adaptations de l'onglet Recettes ; Claude les recopie dans l'app chaque samedi matin (voir [`tools/SYNC.md`](tools/SYNC.md)).
 - **Adapter une recette pour ce menu** : en composant le menu, « ✎ Adapter la recette » change les ingrédients pour le menu en cours seulement, sans rien garder ; la liste de courses suit.
 
-Tout reste sur le téléphone : pas de serveur, pas de compte, gratuit. L'app marche aussi hors connexion.
+- **Menus équilibrés** : chaque plat est classé (légumes, féculents, poisson, viande rouge, volaille et porc, charcuterie, œufs, légumineuses, végétarien, fromage) à partir de ses ingrédients, voir [`docs/nutrition.js`](docs/nutrition.js). Règles de la semaine, inspirées du PNNS : des légumes au moins 5 soirs sur 7, du poisson 2 fois, des légumineuses au moins une fois, un soir végétarien, 2 viandes rouges et 3 plats avec charcuterie au plus. Quand il ne reste plus assez de plats à choisir pour respecter ces règles, l'app ne propose plus que des plats qui comblent ce qui manque. Sur le menu, un encadré propose des plats pour équilibrer, et la liste de courses demande une confirmation s'il manque des légumes.
+- **Synchronisation** (☁️ en haut à droite) : le menu, la liste de courses et les articles cochés sont partagés entre les téléphones de la famille, en temps réel, grâce à une base Firebase gratuite.
+
+Sans synchronisation, tout reste sur le téléphone : pas de serveur, pas de compte, gratuit. L'app marche aussi hors connexion (les changements sont envoyés au retour du réseau).
+
+## Synchroniser les téléphones (une seule fois)
+
+1. Sur https://console.firebase.google.com : **Créer un projet** (`myhellofresh`), puis **Créer → Realtime Database → Créer une base de données**, emplacement Belgique (europe-west1), mode verrouillé.
+2. Onglet **Règles**, coller puis **Publier** :
+   ```json
+   {
+     "rules": {
+       ".read": false,
+       ".write": false,
+       "familles": { "$code": { ".read": "$code.length >= 20", ".write": "$code.length >= 20" } }
+     }
+   }
+   ```
+3. Mettre l'adresse de la base (onglet Données, `https://…firebasedatabase.app`) dans [`docs/sync-config.js`](docs/sync-config.js), ou la coller dans l'app (☁️).
+4. Sur le premier iPhone : ☁️ → **Créer la synchro de la famille**, puis **Inviter un autre téléphone**. Sur l'autre iPhone, ouvrir l'app, ☁️, coller le code dans **Rejoindre**.
+
+Seuls les téléphones qui ont le code de la famille (24 caractères, créé par l'app) peuvent lire ou écrire. Les catégories des plats sont recalculées à partir des ingrédients : la synchronisation du samedi avec le tableau de recettes ne change pas.
 
 ## Mise en ligne (une seule fois)
 
