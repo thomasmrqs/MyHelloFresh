@@ -212,3 +212,5 @@ details.menu-recap summary { cursor: pointer; color: var(--accent); font-weight:
 .editor .del { border: 0; background: none; color: var(--no); font-size: 18px; width: 36px; height: 36px; }
 .editor > .btn.ghost { padding-left: 0; color: var(--accent); }
 .notice .btn { min-height: 36px; padding: 6px 12px; }
+.swipe .adapt { align-self: flex-start; margin-top: 8px; padding-left: 0; color: var(--accent); }
+.linkbtn { border: 0; background: none; padding: 4px 0; color: var(--accent); font-size: 13px; font-weight: 600; }

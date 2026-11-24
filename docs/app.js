@@ -14,6 +14,33 @@
   const RAYON_ORDER = ["boucher", "poissonnier", "legumes", "cremerie", "frais", "boulangerie", "epicerie", "surgeles", "autre", "placard"];
 
   const RAYONS = window.RAYONS;
+
+  // Modifications permanentes du tableau (modifications.js), appliquées sur les recettes d'origine.
+  (function applyModifications() {
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    const recipes = Object.fromEntries(window.RECIPES.map((r) => [r.id, r]));
+    for (const m of window.MODIFICATIONS || []) {
+      const r = recipes[m.id];
+      if (!r) continue;
+      if (!r.mods) { r.ing = r.ing.map((i) => [...i]); r.side = (r.side || []).map((i) => [...i]); r.mods = []; }
+      const part = m.part === "Accompagnement" ? "side" : "ing";
+      const find = () => {
+        for (const p of [part, part === "ing" ? "side" : "ing"]) {
+          const i = r[p].findIndex((x) => norm(x[0]) === norm(m.ing));
+          if (i >= 0) return [p, i];
+        }
+        return [null, -1];
+      };
+      const [p, i] = find();
+      const line = p ? r[p][i] : null;
+      if (m.action === "Supprimer" && line) r[p].splice(i, 1);
+      else if (m.action === "Remplacer" && line) r[p][i] = [m.new || line[0], m.qty ?? line[1], m.unit ?? (m.qty != null ? "" : line[2]), m.rayon || line[3]];
+      else if (m.action === "Changer la quantité" && line) r[p][i] = [line[0], m.qty || 0, m.unit ?? line[2], m.rayon || line[3]];
+      else if (m.action === "Ajouter" && m.new) r[part].push([m.new, m.qty || 0, m.unit || "", m.rayon || (m.qty ? "epicerie" : "placard")]);
+      else continue;
+      r.mods.push(m);
+    }
+  })();
   const COOKIDOO = "https://cookidoo.fr/recipes/recipe/fr-FR/";
   const DINNER_SERVINGS = 4;
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -47,13 +74,15 @@
   function shiftWeek(iso, n) { const d = parseIso(iso); d.setDate(d.getDate() + 7 * n); return isoDate(d); }
 
   // ---------- État ----------
-  const prefs = Object.assign({ excluded: [], included: [], history: [], target: 7, edits: {} }, store.get("prefs", {}));
+  const prefs = Object.assign({ excluded: [], included: [], history: [], target: 7 }, store.get("prefs", {}));
+  delete prefs.edits;
 
-  // Recettes « effectives » : celles du fichier, avec les modifications faites sur ce téléphone.
-  let RECIPES = [], byId = {};
+  // Recettes « effectives » : celles du tableau de la famille (recipes.js, modifications permanentes
+  // déjà appliquées), plus les modifications faites pour le menu de la semaine en cours.
+  let RECIPES = [], byId = {}, weekEdits = {};
   function refreshRecipes() {
     RECIPES = window.RECIPES.map((r) => {
-      const e = prefs.edits[r.id];
+      const e = weekEdits[r.id];
       return e ? { ...r, ing: e.ing, side: e.side, edited: true } : r;
     });
     byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
@@ -67,6 +96,9 @@
 
   let S = store.get("state", null) || freshState();
   if (!S.extras) S.extras = [];
+  if (!S.weekEdits) S.weekEdits = {};
+  function useWeekEdits() { weekEdits = S.weekEdits; refreshRecipes(); }
+  useWeekEdits();
   // Nouvelles recettes arrivées depuis la dernière visite : on refait la pile de cartes.
   if (!S.plan && RECIPES.some((r) => isDish(r) && !isOff(r) && !S.deck.includes(r.id) && !S.kept.includes(r.id))) S.deck = buildDeck(S.kept);
   let shared = store.get("shared", null); // liste reçue par lien
@@ -75,7 +107,7 @@
   let lastDecision = null;
 
   function freshState(week) {
-    return { week: week || defaultWeek(), kept: [], deck: buildDeck([]), plan: null, list: null, extras: [] };
+    return { week: week || defaultWeek(), kept: [], deck: buildDeck([]), plan: null, list: null, extras: [], weekEdits: {} };
   }
   function save() { store.set("state", S); store.set("prefs", prefs); }
 
@@ -396,7 +428,7 @@
     if (r.love === 2) chips.unshift(`<span class="chip ok">★ Préféré</span>`);
     if (r.tmx) chips.unshift(`<span class="chip tmx">Thermomix</span>`);
     if (r.url) chips.unshift(`<span class="chip tmx">${esc(r.source || "Web")} ★ ${esc(r.rating || "")}</span>`);
-    if (r.edited) chips.push(`<span class="chip warn">✎ Modifiée</span>`);
+    if (r.edited) chips.push(`<span class="chip warn">✎ Adaptée cette semaine</span>`);
     if (r.box && isDish(r)) chips.push(`<span class="chip">🥡 Se transporte</span>`);
     return chips.join("");
   }
@@ -409,6 +441,7 @@
       <div class="meta">${esc(r.tool)}${r.note ? " · " + esc(r.note) : ""}</div>
       <div class="chips">${tagChips(r)}</div>
       ${r.kid ? `<div class="kidnote">👧 ${esc(r.kid)}</div>` : ""}
+      ${cls === "top" ? `<button class="btn ghost adapt" data-act="ed-open" data-id="${r.id}">✎ Adapter la recette</button>` : ""}
     </article>`;
   }
 
@@ -417,6 +450,7 @@
     let x0 = 0, y0 = 0, dx = 0, active = false, horizontal = null;
     const yes = $(".stamp.yes", card), no = $(".stamp.no", card);
     card.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return; // le bouton « Adapter » reste un bouton
       active = true; horizontal = null; x0 = e.clientX; y0 = e.clientY; dx = 0;
       card.setPointerCapture(e.pointerId);
     });
@@ -489,7 +523,8 @@
         <div class="dish"><span class="em" aria-hidden="true">${r ? r.emoji : "🌙"}</span>
           <div class="grow"><div class="name">${r ? esc(r.name) : "Soir libre ou restes"}</div>
           ${r ? `<div class="small muted">${esc(r.tool)}${r.note ? " · " + esc(r.note) : ""}</div>` : ""}
-          ${r && r.kid ? `<div class="small" style="color:var(--warn)">👧 ${esc(r.kid)}</div>` : ""}</div></div>
+          ${r && r.kid ? `<div class="small" style="color:var(--warn)">👧 ${esc(r.kid)}</div>` : ""}
+          ${r ? `<button class="linkbtn" data-act="ed-open" data-id="${r.id}">${r.edited ? "✎ Adaptée cette semaine" : "✎ Adapter la recette"}</button>` : ""}</div></div>
         ${warns.map((w) => `<div class="warnline">⚠️ ${w}</div>`).join("")}
         ${lunch}
       </section>`;
@@ -587,16 +622,17 @@
       </div>`).join("");
     return `<div class="editor">
       <p class="small muted">${r.serves ? `Quantités pour ${r.serves} portions, comme sur la recette d'origine.` : "Quantités pour un dîner à 4."}
-        Changez un nom pour remplacer un ingrédient, une quantité, ou supprimez une ligne avec ✕. Une quantité vide = à vérifier au placard.</p>
+        Changez un nom pour remplacer un ingrédient, une quantité, ou supprimez une ligne avec ✕. Une quantité vide = à vérifier au placard.
+        Ce changement vaut pour le menu de cette semaine ; pour le garder toujours, notez-le dans l'onglet Modifications du tableau de recettes.</p>
       ${rows("ing")}
       <button class="btn ghost" data-act="ed-add" data-part="ing">＋ Ajouter un ingrédient</button>
       ${isDish(r) ? `<div class="section-title">Accompagnement (pour 4)</div>${rows("side")}
       <button class="btn ghost" data-act="ed-add" data-part="side">＋ Ajouter un accompagnement</button>` : ""}
       <div class="sharebar" style="margin-top:10px">
-        <button class="btn primary" data-act="ed-save">Enregistrer</button>
+        <button class="btn primary" data-act="ed-save">Garder pour cette semaine</button>
         <button class="btn" data-act="ed-cancel">Annuler</button>
       </div>
-      ${r.edited ? `<button class="btn ghost block" data-act="ed-reset" data-id="${r.id}">Revenir à la recette d'origine</button>` : ""}
+      ${r.edited ? `<button class="btn ghost block" data-act="ed-reset" data-id="${r.id}">Revenir à la recette du tableau</button>` : ""}
       <datalist id="units"><option value="g"><option value="cl"><option value="pc"><option value="boîte"><option value="bouquet"><option value="tranches"><option value="paquet"><option value="pot"></datalist>
     </div>`;
   }
@@ -607,6 +643,7 @@
     const inWeek = (S.extras || []).includes(r.id);
     return `<div class="chips">${tagChips(r)}</div>
       ${r.kid ? `<p style="color:var(--warn)">👧 ${esc(r.kid)}</p>` : ""}${r.note ? `<p class="muted">${esc(r.note)}</p>` : ""}
+      ${r.mods ? `<p class="small"><b>Modifié dans le tableau :</b> ${r.mods.map((m) => esc(modLabel(m))).join(" ; ")}</p>` : ""}
       <ul>${r.ing.map((i) => `<li>${fmtIng(i)}</li>`).join("")}</ul>
       ${r.side && r.side.length ? `<p class="small"><b>Accompagnement</b> (pour 4) : ${r.side.map(fmtIng).join(", ")}</p>` : ""}
       <p class="small muted">${servingsLine(r)}</p>
@@ -620,9 +657,17 @@
       </div>`;
   }
 
+  function modLabel(m) {
+    const q = m.qty ? ` (${String(m.qty).replace(".", ",")} ${m.unit || ""})`.replace(" )", ")") : "";
+    if (m.action === "Supprimer") return `sans ${m.ing}`;
+    if (m.action === "Remplacer") return `${m.new} au lieu de ${m.ing}${q}`;
+    if (m.action === "Ajouter") return `avec ${m.new}${q}`;
+    return `${m.ing}${q}`;
+  }
+
   function editsAsText() {
-    const lines = ["Modifications de recettes"];
-    for (const id of Object.keys(prefs.edits)) {
+    const lines = ["Adaptations de recettes, " + weekLabel(S.week).toLowerCase()];
+    for (const id of Object.keys(weekEdits)) {
       const r = byId[id], o = original[id];
       if (!r || !o) continue;
       lines.push("", r.name.toUpperCase());
@@ -644,7 +689,7 @@
 
   function renderRecipes() {
     const dishes = RECIPES.filter(isDish);
-    const nEdits = Object.keys(prefs.edits).length;
+    const nEdits = Object.keys(weekEdits).length;
     setHeader("Recettes", `${dishes.length} plats dont ${dishes.filter((r) => r.tmx).length} Thermomix · ${dishes.filter(isOff).length} mis de côté`);
     const f = renderRecipes.filter || "all";
     const q = (renderRecipes.q || "").toLowerCase();
@@ -659,7 +704,7 @@
     const list = RECIPES.filter(match).sort((a, b) => (b.tmx ? 1 : 0) - (a.tmx ? 1 : 0) || a.name.localeCompare(b.name, "fr"));
     view.innerHTML = `<input class="search" type="search" placeholder="Chercher un plat ou un ingrédient" value="${esc(renderRecipes.q || "")}" data-act="search">
       <div class="seg filters" role="group" aria-label="Filtrer">${FILTERS.map(([k, l]) => `<button data-act="filter" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>
-      ${nEdits ? `<div class="notice row"><span class="grow">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} modifiée${nEdits > 1 ? "s" : ""} sur ce téléphone.</span>
+      ${nEdits ? `<div class="notice row"><span class="grow">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} adaptée${nEdits > 1 ? "s" : ""} pour le menu de cette semaine.</span>
         <button class="btn" data-act="copy-edits">Copier</button></div>` : ""}
       ${list.map((r) => {
         const editing = draft && draft.id === r.id;
@@ -669,7 +714,7 @@
           ${r.edited ? "✎" : ""}${r.love === 2 ? "★" : ""}</summary>
           <div class="body">${recipeBody(r)}</div></details>`;
       }).join("") || `<p class="muted">Aucune recette.</p>`}
-      <p class="small muted" style="margin-top:16px">Les modifications restent sur ce téléphone. « Copier » donne le résumé à envoyer à Claude pour les garder dans l'app pour tout le monde.</p>`;
+      <p class="small muted" style="margin-top:16px">Les recettes et leurs modifications permanentes viennent du tableau « Base de recettes de la famille ». Les adaptations faites ici ne valent que pour la semaine en cours ; « Copier » en donne le résumé à reporter dans le tableau.</p>`;
   }
 
   // Relit les champs de l'éditeur dans le brouillon (avant d'ajouter ou de supprimer une ligne).
@@ -693,14 +738,16 @@
     const o = original[draft.id];
     const ing = clean(draft.ing), side = clean(draft.side);
     const same = JSON.stringify(ing) === JSON.stringify(o.ing) && JSON.stringify(side) === JSON.stringify(o.side || []);
-    if (same) delete prefs.edits[draft.id];
-    else prefs.edits[draft.id] = { ing, side, at: isoDate(new Date()) };
+    if (same) delete S.weekEdits[draft.id];
+    else S.weekEdits[draft.id] = { ing, side };
+    const back = draft.from;
     draft = null;
-    afterRecipeChange(same ? "Aucun changement." : "Recette modifiée.");
+    afterRecipeChange(same ? "Aucun changement." : "Recette adaptée pour cette semaine.");
+    if (back) tab = back;
   }
 
   function afterRecipeChange(msg) {
-    refreshRecipes();
+    useWeekEdits();
     if (S.plan && S.list) {
       const week = S.list.week;
       S.list = buildList(S.plan, S.list);
@@ -747,6 +794,8 @@
         if (S.plan) prefs.history = [...prefs.history, S.plan.dinners.filter(Boolean)].slice(-4);
         S = freshState(S.plan ? shiftWeek(S.week, 1) : S.week);
         lastDecision = null;
+        draft = null;
+        useWeekEdits();
         break;
       case "go-menu": tab = "menu"; break;
       case "view-mine": coursesView = "mine"; break;
@@ -798,20 +847,26 @@
       }
       case "ed-open": {
         const r = byId[t.dataset.id];
-        draft = { id: r.id, ing: r.ing.map((i) => [...i]), side: (r.side || []).map((i) => [...i]) };
+        draft = { id: r.id, ing: r.ing.map((i) => [...i]), side: (r.side || []).map((i) => [...i]), from: tab === "recettes" ? null : tab };
         openRecipes.add(r.id);
+        if (tab !== "recettes") {
+          tab = "recettes"; renderRecipes.filter = "all"; renderRecipes.q = "";
+          save(); render();
+          document.querySelector(`details[data-id="${r.id}"]`)?.scrollIntoView({ block: "start" });
+          return;
+        }
         break;
       }
       case "ed-add": syncDraft(); draft[t.dataset.part].push(["", 0, "", t.dataset.part === "side" ? "surgeles" : "legumes"]); break;
       case "ed-del": syncDraft(); draft[t.dataset.part].splice(Number(t.dataset.i), 1); break;
-      case "ed-cancel": draft = null; break;
+      case "ed-cancel": { const back = draft && draft.from; draft = null; if (back) tab = back; break; }
       case "ed-save": saveDraft(); break;
       case "ed-reset":
-        delete prefs.edits[t.dataset.id];
+        delete S.weekEdits[t.dataset.id];
         draft = null;
         afterRecipeChange("Recette d'origine rétablie.");
         break;
-      case "copy-edits": copy(editsAsText(), "Modifications copiées : collez-les dans un message à Claude."); return;
+      case "copy-edits": copy(editsAsText(), "Adaptations copiées."); return;
       default: return;
     }
     save();

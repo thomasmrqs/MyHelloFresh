@@ -1,6 +1,6 @@
 // Garde l'app disponible hors connexion (au supermarché, sans réseau).
 const CACHE = "menus-v2";
-const SHELL = ["./", "index.html", "style.css", "app.js", "recipes.js", "manifest.webmanifest",
+const SHELL = ["./", "index.html", "style.css", "app.js", "recipes.js", "modifications.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
