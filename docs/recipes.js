@@ -22,6 +22,7 @@
 //   kind      "plat" (par défaut), "accompagnement", "dessert" ou "base" ;
 //             seuls les plats sont proposés dans le menu, les autres s'ajoutent à la semaine
 //   defaultOff true : pas proposé dans le menu tant qu'on ne l'a pas réactivé
+//   url, source, rating  recette trouvée sur un site (ex. 750g), avec sa note ; proposée en priorité
 //
 // Rayons : boucher, poissonnier, legumes, cremerie, frais, epicerie, surgeles, boulangerie, placard
 
@@ -93,12 +94,6 @@ window.RECIPES = [
       ["Riz", 300, "g", "epicerie"], ["Haricots verts surgelés", 600, "g", "surgeles"]],
   },
   {
-    id: "bourguignon", name: "Bœuf bourguignon", emoji: "🍷", love: 1, tags: ["viandeRouge"], box: true,
-    tool: "Cookeo, 20 min", note: "Sans champignons",
-    ing: [["Bœuf à braiser", 1000, "g", "boucher"], ["Carottes", 5, "pc", "legumes"], ["Oignons", 2, "pc", "legumes"],
-      ["Lardons", 150, "g", "frais"], ["Vin rouge", 1, "bouteille", "epicerie"], ["Pâtes", 400, "g", "epicerie"], P("Farine")],
-  },
-  {
     id: "pizza", name: "Pizza maison", emoji: "🍕", love: 1, tags: ["fromage"], box: true,
     tool: "Four, 15 min",
     ing: [["Pâte à pizza", 2, "pc", "frais"], ["Coulis de tomate", 1, "pot", "epicerie"], ["Mozzarella", 2, "pc", "cremerie"],
@@ -133,12 +128,6 @@ window.RECIPES = [
     tool: "Thermomix + four, 10 min",
     ing: [["Pain de mie", 1, "paquet", "epicerie"], ["Jambon blanc", 8, "tranches", "frais"], ["Emmental râpé", 200, "g", "cremerie"],
       ["Lait", 50, "cl", "cremerie"], ["Haricots verts surgelés", 600, "g", "surgeles"], P("Farine"), P("Beurre")],
-  },
-  {
-    id: "blanquette", name: "Blanquette de veau, riz", emoji: "🍲", love: 1, tags: [], box: true,
-    tool: "Cookeo, 20 min", note: "Sans champignons",
-    ing: [["Veau pour blanquette", 1000, "g", "boucher"], ["Carottes", 4, "pc", "legumes"], ["Oignons", 1, "pc", "legumes"],
-      ["Crème fraîche", 20, "cl", "cremerie"], ["Citron", 1, "pc", "legumes"], ["Riz", 300, "g", "epicerie"], P("Farine")],
   },
   {
     id: "cabillaud", name: "Cabillaud en croûte de parmesan, pommes de terre vapeur", emoji: "🐟", love: 1,
@@ -200,6 +189,62 @@ window.RECIPES = [
       ["Petits pois surgelés", 300, "g", "surgeles"]],
   },
 
+  // ---------- Plats mijotés au Cookeo (750g.com, 4 étoiles ou plus et plus de 20 avis) ----------
+  // Quantités de la recette d'origine (voir « serves ») ; l'app les ramène à un dîner de 4.
+  {
+    id: "bourguignon", name: "Bœuf bourguignon", emoji: "🍷", love: 1, tags: ["viandeRouge"], box: true,
+    url: "https://www.750g.com/boeuf-bourguignon-au-cookeo-r205045.htm", source: "750g", rating: "5/5, 63 avis",
+    serves: 6, tool: "Cookeo, 15 min", note: "Sans les champignons de la recette d'origine",
+    ing: [["Collier de bœuf", 1000, "g", "boucher"], ["Vin rouge de Bourgogne", 50, "cl", "epicerie"], ["Lardons", 125, "g", "frais"],
+      ["Oignons grelots", 8, "pc", "legumes"], ["Carottes", 3, "pc", "legumes"], ["Persil", 1, "bouquet", "legumes"],
+      P("Bouquet garni"), P("Fond brun de veau"), P("Fécule de maïs"), P("Huile de tournesol")],
+    side: [["Pâtes", 400, "g", "epicerie"]],
+  },
+  {
+    id: "blanquette", name: "Blanquette de veau, riz", emoji: "🍲", love: 1, tags: [], box: true,
+    url: "https://www.750g.com/blanquette-de-veau-au-cookeo-r208813.htm", source: "750g", rating: "5/5, 70 avis",
+    serves: 4, tool: "Cookeo, 20 min", note: "Sans les champignons de la recette d'origine",
+    ing: [["Veau pour blanquette", 800, "g", "boucher"], ["Carottes", 3, "pc", "legumes"], ["Oignons", 1, "pc", "legumes"],
+      ["Crème fraîche", 4, "cl", "cremerie"], ["Œufs", 1, "pc", "cremerie"], ["Citron", 1, "pc", "legumes"], ["Persil", 1, "bouquet", "legumes"],
+      P("Bouquet garni"), P("Bouillon de légumes"), P("Beurre"), P("Farine")],
+    side: [["Riz", 300, "g", "epicerie"]],
+  },
+  {
+    id: "blanquette-poulet", name: "Blanquette de poulet, riz", emoji: "🍗", love: 1, tags: [], box: true,
+    url: "https://www.750g.com/blanquette-de-poulet-au-cookeo-r208845.htm", source: "750g", rating: "4,6/5, 26 avis",
+    serves: 4, tool: "Cookeo, 20 min",
+    ing: [["Filets de poulet", 800, "g", "boucher"], ["Carottes", 3, "pc", "legumes"], ["Oignons", 1, "pc", "legumes"],
+      ["Crème fraîche", 4, "cl", "cremerie"], ["Œufs", 1, "pc", "cremerie"], ["Citron", 1, "pc", "legumes"], ["Persil", 1, "bouquet", "legumes"],
+      P("Bouquet garni"), P("Bouillon de légumes"), P("Beurre"), P("Farine")],
+    side: [["Riz", 300, "g", "epicerie"]],
+  },
+  {
+    id: "filet-mignon", name: "Filet mignon à la moutarde, pommes de terre", emoji: "🐖", love: 1, tags: [], box: true,
+    url: "https://www.750g.com/filet-mignon-au-cookeo-r208864.htm", source: "750g", rating: "5/5, 38 avis",
+    serves: 4, tool: "Cookeo, 10 min",
+    ing: [["Filets mignons de porc", 800, "g", "boucher"], ["Échalotes", 4, "pc", "legumes"], ["Tomates", 2, "pc", "legumes"],
+      ["Crème fraîche", 20, "cl", "cremerie"], P("Moutarde"), P("Bouquet garni"), P("Bouillon de légumes"), P("Farine"), P("Beurre")],
+    side: [["Pommes de terre", 1000, "g", "legumes"], ["Haricots verts surgelés", 600, "g", "surgeles"]],
+  },
+  // Autres plats mijotés au Cookeo de la famille
+  {
+    id: "porc-caramel", name: "Porc au caramel, riz", emoji: "🍖", love: 2, tags: [], box: true,
+    tool: "Cookeo, 15 min",
+    ing: [["Échine de porc", 800, "g", "boucher"], ["Oignons", 2, "pc", "legumes"], ["Carottes", 4, "pc", "legumes"],
+      ["Riz", 300, "g", "epicerie"], P("Sucre"), P("Sauce soja"), P("Ail")],
+  },
+  {
+    id: "petit-sale", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true,
+    tool: "Cookeo, 10 min",
+    ing: [["Petit salé", 800, "g", "boucher"], ["Lentilles vertes", 400, "g", "epicerie"], ["Carottes", 4, "pc", "legumes"],
+      ["Oignons", 1, "pc", "legumes"], P("Bouquet garni")],
+  },
+  {
+    id: "basquaise", name: "Poulet basquaise sans poivron, riz", emoji: "🍅", love: 1, tags: [], box: true,
+    tool: "Cookeo, 15 min",
+    ing: [["Hauts de cuisse de poulet", 1000, "g", "boucher"], ["Tomates concassées", 2, "boîte", "epicerie"],
+      ["Courgettes", 2, "pc", "legumes"], ["Oignons", 2, "pc", "legumes"], ["Riz", 300, "g", "epicerie"]],
+  },
   // ---------- Recettes Thermomix (Cookidoo) ----------
   // Quantités de la recette d'origine (voir « serves ») ; l'app les ramène à un dîner de 4.
   // Ces plats sont proposés en priorité dans le menu.
@@ -232,9 +277,10 @@ window.RECIPES = [
     side: [["Riz", 100, "g", "epicerie"]],
   },
   {
-    id: "porc-caramel", name: "Échine au caramel, riz parfumé", emoji: "🍖", love: 2, tags: [], box: true,
+    id: "porc-caramel-tmx", name: "Échine au caramel, riz parfumé", emoji: "🍖", love: 2, tags: [], box: true, defaultOff: true,
     tmx: "r308569", serves: 4, tool: "Thermomix, 20 min",
     kid: "Pistaches concassées servies à part pour Olivia",
+    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Échine de porc désossée", 600, "g", "boucher"], ["Riz", 200, "g", "epicerie"], ["Pistaches non salées", 60, "g", "epicerie"],
       ["Gingembre frais", 1, "pc", "legumes"], ["Persil plat", 1, "bouquet", "legumes"],
       P("Sucre"), P("Sauce soja"), P("Cardamome"), P("Quatre-épices"), P("Bouillon de volaille"), P("Huile d'olive")],
@@ -263,15 +309,17 @@ window.RECIPES = [
     side: [["Haricots verts surgelés", 600, "g", "surgeles"]],
   },
   {
-    id: "petit-sale", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true,
+    id: "petit-sale-tmx", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true, defaultOff: true,
     tmx: "r57859", serves: 4, tool: "Thermomix, 5 min",
+    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Petit salé", 400, "g", "boucher"], ["Saucisse de Morteau", 1, "pc", "boucher"], ["Lentilles vertes", 250, "g", "epicerie"],
       ["Carottes", 120, "g", "legumes"], ["Oignons", 1, "pc", "legumes"],
       P("Ail"), P("Clou de girofle"), P("Thym, romarin, laurier"), P("Moutarde")],
   },
   {
-    id: "basquaise", name: "Poulet basquaise, riz", emoji: "🍅", love: 1, tags: [], box: true,
+    id: "basquaise-tmx", name: "Poulet basquaise, riz", emoji: "🍅", love: 1, tags: [], box: true, defaultOff: true,
     tmx: "r431355", serves: 4, tool: "Thermomix, 10 min",
+    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Pilons de poulet", 600, "g", "boucher"], ["Oignons", 2, "pc", "legumes"], ["Poivron vert", 1, "pc", "legumes"],
       ["Poivron rouge", 1, "pc", "legumes"], ["Tomates", 250, "g", "legumes"], ["Vin blanc sec", 20, "cl", "epicerie"],
       P("Ail"), P("Huile d'olive"), P("Thym, laurier")],

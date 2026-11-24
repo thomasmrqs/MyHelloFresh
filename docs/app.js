@@ -85,7 +85,7 @@
       .filter((r) => isDish(r) && !isOff(r) && !kept.includes(r.id))
       .map((r) => {
         let w = r.love === 2 ? 3 : 1.5;
-        if (r.tmx) w *= 3; // recettes Thermomix en priorité : plus simples à faire
+        if (r.tmx || r.url) w *= 3; // Thermomix, et mijotés Cookeo bien notés sur 750g : en priorité
         if (recent.has(r.id)) w *= 0.25;
         return { id: r.id, k: -Math.log(Math.random()) / w };
       })
@@ -160,7 +160,7 @@
     const used = new Set(plan.dinners.filter(Boolean));
     const spare = RECIPES
       .filter((r) => isDish(r) && r.box && !isOff(r) && !r.tags.includes("poissonnier"))
-      .sort((a, b) => (b.tmx ? 2 : 0) + b.love - ((a.tmx ? 2 : 0) + a.love))
+      .sort((a, b) => (b.tmx || b.url ? 2 : 0) + b.love - ((a.tmx || a.url ? 2 : 0) + a.love))
       .map((r) => r.id);
     const pickSpare = () => {
       const id = spare.find((x) => !used.has(x)) || spare[0];
@@ -394,6 +394,7 @@
     const chips = r.tags.filter((t) => map[t]).map((t) => `<span class="chip">${map[t]}</span>`);
     if (r.love === 2) chips.unshift(`<span class="chip ok">★ Préféré</span>`);
     if (r.tmx) chips.unshift(`<span class="chip tmx">Thermomix</span>`);
+    if (r.url) chips.unshift(`<span class="chip tmx">${esc(r.source || "Web")} ★ ${esc(r.rating || "")}</span>`);
     if (r.edited) chips.push(`<span class="chip warn">✎ Modifiée</span>`);
     if (r.box && isDish(r)) chips.push(`<span class="chip">🥡 Se transporte</span>`);
     return chips.join("");
@@ -569,7 +570,7 @@
 
   function servingsLine(r) {
     if (!r.serves) return isDish(r) ? "Quantités pour un dîner à 4." : "";
-    if (isDish(r)) return `Quantités de la recette Thermomix (${r.serves} portions). La liste de courses les ramène à un dîner à 4.`;
+    if (isDish(r)) return `Quantités de la recette d'origine (${r.serves} portions). La liste de courses les ramène à un dîner à 4.`;
     return `Quantités pour la recette entière (${r.serves} ${r.kind === "dessert" ? "parts" : "portions"}).`;
   }
 
@@ -609,6 +610,7 @@
       ${r.side && r.side.length ? `<p class="small"><b>Accompagnement</b> (pour 4) : ${r.side.map(fmtIng).join(", ")}</p>` : ""}
       <p class="small muted">${servingsLine(r)}</p>
       ${r.tmx ? `<p class="small"><a href="${COOKIDOO}${r.tmx}" target="_blank" rel="noopener">Ouvrir la recette sur Cookidoo ↗</a></p>` : ""}
+      ${r.url ? `<p class="small"><a href="${esc(r.url)}" target="_blank" rel="noopener">Ouvrir la recette sur ${esc(r.source || "le site")} ↗</a></p>` : ""}
       <div class="sharebar">
         <button class="btn" data-act="ed-open" data-id="${r.id}">✎ Modifier</button>
         ${isDish(r)
