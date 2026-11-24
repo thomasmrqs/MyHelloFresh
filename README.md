@@ -23,4 +23,4 @@ Ouvrir le lien dans **Safari**, toucher le bouton Partager, puis **Sur l'écran 
 
 ## Ajouter ou modifier une recette
 
-Les recettes sont dans [`docs/recipes.js`](docs/recipes.js) et les modifications permanentes dans [`docs/modifications.js`](docs/modifications.js), recopiées depuis le tableau de recettes ; les quantités sont les quantités pour un dîner à 4. Pour les recettes Thermomix, les quantités sont celles de Cookidoo (champ `serves`) et l'app les ramène à 4 couverts.
+Les recettes sont dans [`docs/recipes.js`](docs/recipes.js) et les modifications permanentes dans [`docs/modifications.js`](docs/modifications.js), recopiées depuis le tableau de recettes. Les quantités sont pour un dîner à 4. Pour les recettes Thermomix, les quantités sont celles de Cookidoo (champ `serves`) et l'app les ramène à 4 couverts.
