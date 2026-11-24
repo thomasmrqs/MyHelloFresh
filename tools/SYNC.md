@@ -3,17 +3,23 @@
 Le tableau Claude Sheets « Base de recettes de la famille »
 (https://claude.ai/artifact/DofHEKRUfpETQ1N5aDvoA4) est la référence :
 
-- **Recettes** et **Ingrédients** : les recettes d'origine → `docs/recipes.js`
-- **Modifications** : les changements permanents de la famille → `docs/modifications.js`, appliqués au chargement de l'app
+- **Recettes** : une ligne par recette (proposée au menu, préférée, se transporte…) et la colonne
+  **Adaptations (permanentes)**, écrite librement par la famille (« sans champignons ; butternut au lieu de potiron »)
+- **Ingrédients** : les recettes d'origine (Cookidoo, 750g…)
 - **Contrôle** (onglet caché) : une empreinte par onglet, pour savoir ce qui a changé sans tout relire
 
-Procédure (faite par Claude) :
+Dans le dépôt : `docs/recipes.js` (recettes d'origine) et `docs/modifications.js` (les adaptations,
+traduites en changements d'ingrédients, appliquées au chargement de l'app).
 
-1. Lire `Contrôle!B2:B4` et comparer aux empreintes de `tools/sheet-fingerprint.json`.
-2. Relire seulement les onglets dont l'empreinte a changé (`readCells`, toutes les lignes), et les mettre dans un `export.json` :
-   `{"recettes": {...rows}, "ingredients": {...rows}, "modifications": {...rows}}`.
-3. `node tools/sync-from-sheet.js export.json`, vérifier le diff, tester l'app.
-4. Mettre à jour `tools/sheet-fingerprint.json`, commiter et publier.
+Procédure (faite par Claude chaque samedi matin, ou sur demande) :
 
-Les adaptations faites dans l'app (« ✎ Adapter la recette ») ne valent que pour la semaine en cours
-et passent par-dessus le tableau.
+1. Lire `Contrôle!B2:B3` et comparer aux empreintes de `tools/sheet-fingerprint.json`. Rien de changé : s'arrêter.
+2. Relire en entier les onglets dont l'empreinte a changé (`readCells`, ligne 1 comprise) et les mettre dans
+   un `export.json` : `{"recettes": {...rows}, "ingredients": {...rows}}`.
+3. `node tools/sync-from-sheet.js export.json`. Le script réécrit `docs/recipes.js`, retire de
+   `docs/modifications.js` les adaptations effacées et liste les adaptations nouvelles ou changées.
+4. Traduire chacune de ces adaptations dans `docs/modifications.js` (`text` = le texte exact de la colonne,
+   `changes` = les changements d'ingrédients). En cas de doute sur ce que veut dire une adaptation, demander.
+5. Vérifier le diff, tester l'app, mettre à jour `tools/sheet-fingerprint.json`, commiter et publier.
+
+Les adaptations faites dans l'app (« ✎ Adapter la recette ») ne valent que pour le menu en cours et ne sont pas gardées.

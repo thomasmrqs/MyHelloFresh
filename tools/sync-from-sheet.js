@@ -3,10 +3,11 @@
  *
  * Usage : node tools/sync-from-sheet.js export.json
  *
- * export.json contient les lignes lues dans le tableau (readCells), onglet par onglet,
- * chacun facultatif : { "recettes": {"1": [...], "2": [...]}, "ingredients": {...}, "modifications": {...} }
- * - recettes / ingredients : réécrit docs/recipes.js (les onglets absents gardent leur contenu actuel)
- * - modifications : réécrit docs/modifications.js
+ * export.json contient les lignes lues dans le tableau (readCells, ligne 1 = en-têtes),
+ * onglet par onglet, chacun facultatif : { "recettes": {"1": [...], "2": [...]}, "ingredients": {...} }
+ * - réécrit docs/recipes.js (un onglet absent garde son contenu actuel)
+ * - compare la colonne « Adaptations » à docs/modifications.js : retire les adaptations effacées
+ *   et liste celles que Claude doit traduire en changements.
  * Voir tools/SYNC.md.
  */
 "use strict";
@@ -35,12 +36,26 @@ const num = (v) => { const c = cell(v); const n = typeof c === "number" ? c : pa
 const rows = (sheet) => Object.keys(sheet || {}).map(Number).sort((a, b) => a - b).filter((n) => n > 1).map((n) => sheet[n]);
 
 let recipes = current.map((r) => ({ ...r }));
+const adaptations = {}; // id → texte de la colonne Adaptations
+
+// Colonnes repérées par leur en-tête, pour que l'ordre des colonnes puisse changer.
+function columns(sheet, wanted) {
+  const head = (sheet["1"] || []).map((h) => text(h).toLowerCase());
+  return Object.fromEntries(Object.entries(wanted).map(([k, label]) => [k, head.findIndex((h) => h.startsWith(label))]));
+}
 
 if (exp.recettes) {
+  const C = columns(exp.recettes, { id: "id", name: "nom", adapt: "adaptations", kind: "type", tool: "appareil", serves: "portions",
+    menu: "proposé", fav: "préféré", box: "se transporte", cats: "catégories", kid: "pour les enfants", note: "astuce", link: "lien" });
+  const missing = Object.entries(C).filter(([, i]) => i < 0).map(([k]) => k);
+  if (missing.length) throw new Error("Colonnes introuvables dans l'onglet Recettes : " + missing.join(", "));
   const seen = new Set();
   const next = [];
   for (const row of rows(exp.recettes)) {
-    const [id, name, kind, , tool, serves, menu, fav, box, cats, kid, note, link] = row.map(cell);
+    const get = (k) => cell(row[C[k]]);
+    const [id, name, kind, tool, serves, menu, fav, box, cats, kid, note, link] =
+      ["id", "name", "kind", "tool", "serves", "menu", "fav", "box", "cats", "kid", "note", "link"].map(get);
+    if (text(id)) adaptations[text(id)] = text(get("adapt"));
     const rid = text(id);
     if (!rid) continue;
     seen.add(rid);
@@ -118,29 +133,28 @@ for (const g of [0, 1, 2]) {
 out += "];\n";
 fs.writeFileSync(path.join(DOCS, "recipes.js"), out);
 
-// ---------- Écriture de modifications.js ----------
-if (exp.modifications) {
-  const ACTIONS = ["Remplacer", "Supprimer", "Ajouter", "Changer la quantité"];
-  const mods = [];
-  for (const row of rows(exp.modifications)) {
-    const [id, , action, ing, nw, qty, unit, rayon, part, why] = row;
-    const a = text(action);
-    if (!text(id) || !ACTIONS.includes(a)) continue;
-    const m = { id: text(id), action: a };
-    if (text(ing)) m.ing = text(ing);
-    if (text(nw)) m.new = text(nw);
-    if (num(qty)) m.qty = num(qty);
-    if (text(unit)) m.unit = text(unit);
-    if (rayonKey(text(rayon))) m.rayon = rayonKey(text(rayon));
-    m.part = text(part) === "Accompagnement" ? "Accompagnement" : "Recette";
-    if (text(why)) m.why = text(why);
-    if (!recipes.some((r) => r.id === m.id)) console.log("Modification ignorée, recette inconnue :", m.id);
-    mods.push(m);
+// ---------- Adaptations : docs/modifications.js ----------
+if (exp.recettes) {
+  require(path.join(DOCS, "modifications.js"));
+  const mods = window.MODIFICATIONS || {};
+  const todo = [];
+  let removed = 0;
+  for (const id of Object.keys(mods)) if (!adaptations[id]) { delete mods[id]; removed++; }
+  for (const [id, t] of Object.entries(adaptations)) {
+    if (!t) continue;
+    if (!mods[id] || mods[id].text !== t) todo.push({ id, text: t, before: mods[id] ? mods[id].text : null });
   }
-  const msrc = fs.readFileSync(path.join(DOCS, "modifications.js"), "utf8");
-  const mHead = msrc.slice(0, msrc.indexOf("window.MODIFICATIONS = ["));
-  fs.writeFileSync(path.join(DOCS, "modifications.js"),
-    mHead + "window.MODIFICATIONS = [\n" + mods.map((m) => "  " + JSON.stringify(m).replace(/"(\w+)":/g, "$1: ").replace(/,(?=\w+: )/g, ", ") + ",\n").join("") + "];\n");
-  console.log(mods.length, "modification(s) recopiée(s)");
+  if (removed) {
+    const msrc = fs.readFileSync(path.join(DOCS, "modifications.js"), "utf8");
+    const head = msrc.slice(0, msrc.indexOf("window.MODIFICATIONS = {"));
+    const body = Object.entries(mods).map(([id, a]) =>
+      `  ${JSON.stringify(id)}: {\n    text: ${JSON.stringify(a.text)},\n    changes: ${JSON.stringify(a.changes)},\n  },\n`).join("");
+    fs.writeFileSync(path.join(DOCS, "modifications.js"), head + "window.MODIFICATIONS = {\n" + body + "};\n");
+    console.log(removed, "adaptation(s) effacée(s) du tableau, retirée(s) de modifications.js");
+  }
+  if (todo.length) {
+    console.log("\nADAPTATIONS À TRADUIRE dans docs/modifications.js (text + changes) :");
+    for (const t of todo) console.log(`- ${t.id} : « ${t.text} »` + (t.before ? ` (avant : « ${t.before} »)` : ""));
+  } else console.log("Adaptations : modifications.js est à jour.");
 }
 console.log(recipes.length, "recettes écrites dans docs/recipes.js");

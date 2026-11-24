@@ -15,14 +15,16 @@
 
   const RAYONS = window.RAYONS;
 
-  // Modifications permanentes du tableau (modifications.js), appliquées sur les recettes d'origine.
+  // Adaptations permanentes du tableau (modifications.js), appliquées sur les recettes d'origine.
   (function applyModifications() {
     const norm = (x) => String(x || "").trim().toLowerCase();
     const recipes = Object.fromEntries(window.RECIPES.map((r) => [r.id, r]));
-    for (const m of window.MODIFICATIONS || []) {
-      const r = recipes[m.id];
-      if (!r) continue;
-      if (!r.mods) { r.ing = r.ing.map((i) => [...i]); r.side = (r.side || []).map((i) => [...i]); r.mods = []; }
+    for (const [id, a] of Object.entries(window.MODIFICATIONS || {})) {
+      const r = recipes[id];
+      if (!r || !a) continue;
+      r.ing = r.ing.map((i) => [...i]); r.side = (r.side || []).map((i) => [...i]);
+      r.adapt = a.text;
+      for (const m of a.changes || []) {
       const part = m.part === "Accompagnement" ? "side" : "ing";
       const find = () => {
         for (const p of [part, part === "ing" ? "side" : "ing"]) {
@@ -37,8 +39,7 @@
       else if (m.action === "Remplacer" && line) r[p][i] = [m.new || line[0], m.qty ?? line[1], m.unit ?? (m.qty != null ? "" : line[2]), m.rayon || line[3]];
       else if (m.action === "Changer la quantité" && line) r[p][i] = [line[0], m.qty || 0, m.unit ?? line[2], m.rayon || line[3]];
       else if (m.action === "Ajouter" && m.new) r[part].push([m.new, m.qty || 0, m.unit || "", m.rayon || (m.qty ? "epicerie" : "placard")]);
-      else continue;
-      r.mods.push(m);
+      }
     }
   })();
   const COOKIDOO = "https://cookidoo.fr/recipes/recipe/fr-FR/";
@@ -428,7 +429,7 @@
     if (r.love === 2) chips.unshift(`<span class="chip ok">★ Préféré</span>`);
     if (r.tmx) chips.unshift(`<span class="chip tmx">Thermomix</span>`);
     if (r.url) chips.unshift(`<span class="chip tmx">${esc(r.source || "Web")} ★ ${esc(r.rating || "")}</span>`);
-    if (r.edited) chips.push(`<span class="chip warn">✎ Adaptée cette semaine</span>`);
+    if (r.edited) chips.push(`<span class="chip warn">✎ Adaptée pour ce menu</span>`);
     if (r.box && isDish(r)) chips.push(`<span class="chip">🥡 Se transporte</span>`);
     return chips.join("");
   }
@@ -524,7 +525,7 @@
           <div class="grow"><div class="name">${r ? esc(r.name) : "Soir libre ou restes"}</div>
           ${r ? `<div class="small muted">${esc(r.tool)}${r.note ? " · " + esc(r.note) : ""}</div>` : ""}
           ${r && r.kid ? `<div class="small" style="color:var(--warn)">👧 ${esc(r.kid)}</div>` : ""}
-          ${r ? `<button class="linkbtn" data-act="ed-open" data-id="${r.id}">${r.edited ? "✎ Adaptée cette semaine" : "✎ Adapter la recette"}</button>` : ""}</div></div>
+          ${r ? `<button class="linkbtn" data-act="ed-open" data-id="${r.id}">${r.edited ? "✎ Adaptée pour ce menu" : "✎ Adapter la recette"}</button>` : ""}</div></div>
         ${warns.map((w) => `<div class="warnline">⚠️ ${w}</div>`).join("")}
         ${lunch}
       </section>`;
@@ -623,13 +624,13 @@
     return `<div class="editor">
       <p class="small muted">${r.serves ? `Quantités pour ${r.serves} portions, comme sur la recette d'origine.` : "Quantités pour un dîner à 4."}
         Changez un nom pour remplacer un ingrédient, une quantité, ou supprimez une ligne avec ✕. Une quantité vide = à vérifier au placard.
-        Ce changement vaut pour le menu de cette semaine ; pour le garder toujours, notez-le dans l'onglet Modifications du tableau de recettes.</p>
+        Ce changement ne vaut que pour le menu en cours et ne sera pas gardé.</p>
       ${rows("ing")}
       <button class="btn ghost" data-act="ed-add" data-part="ing">＋ Ajouter un ingrédient</button>
       ${isDish(r) ? `<div class="section-title">Accompagnement (pour 4)</div>${rows("side")}
       <button class="btn ghost" data-act="ed-add" data-part="side">＋ Ajouter un accompagnement</button>` : ""}
       <div class="sharebar" style="margin-top:10px">
-        <button class="btn primary" data-act="ed-save">Garder pour cette semaine</button>
+        <button class="btn primary" data-act="ed-save">Valider pour ce menu</button>
         <button class="btn" data-act="ed-cancel">Annuler</button>
       </div>
       ${r.edited ? `<button class="btn ghost block" data-act="ed-reset" data-id="${r.id}">Revenir à la recette du tableau</button>` : ""}
@@ -643,7 +644,7 @@
     const inWeek = (S.extras || []).includes(r.id);
     return `<div class="chips">${tagChips(r)}</div>
       ${r.kid ? `<p style="color:var(--warn)">👧 ${esc(r.kid)}</p>` : ""}${r.note ? `<p class="muted">${esc(r.note)}</p>` : ""}
-      ${r.mods ? `<p class="small"><b>Modifié dans le tableau :</b> ${r.mods.map((m) => esc(modLabel(m))).join(" ; ")}</p>` : ""}
+      ${r.adapt ? `<p class="small"><b>Adaptations du tableau :</b> ${esc(r.adapt)}</p>` : ""}
       <ul>${r.ing.map((i) => `<li>${fmtIng(i)}</li>`).join("")}</ul>
       ${r.side && r.side.length ? `<p class="small"><b>Accompagnement</b> (pour 4) : ${r.side.map(fmtIng).join(", ")}</p>` : ""}
       <p class="small muted">${servingsLine(r)}</p>
@@ -655,36 +656,6 @@
           ? `<button class="btn" data-act="toggle-ex" data-id="${r.id}">${off ? "Proposer à nouveau" : "Ne plus proposer"}</button>`
           : `<button class="btn ${inWeek ? "" : "primary"}" data-act="extra" data-id="${r.id}">${inWeek ? "Retirer de la semaine" : "Ajouter à la semaine"}</button>`}
       </div>`;
-  }
-
-  function modLabel(m) {
-    const q = m.qty ? ` (${String(m.qty).replace(".", ",")} ${m.unit || ""})`.replace(" )", ")") : "";
-    if (m.action === "Supprimer") return `sans ${m.ing}`;
-    if (m.action === "Remplacer") return `${m.new} au lieu de ${m.ing}${q}`;
-    if (m.action === "Ajouter") return `avec ${m.new}${q}`;
-    return `${m.ing}${q}`;
-  }
-
-  function editsAsText() {
-    const lines = ["Adaptations de recettes, " + weekLabel(S.week).toLowerCase()];
-    for (const id of Object.keys(weekEdits)) {
-      const r = byId[id], o = original[id];
-      if (!r || !o) continue;
-      lines.push("", r.name.toUpperCase());
-      for (const part of ["ing", "side"]) {
-        const before = new Map((o[part] || []).map((i) => [i[0], i]));
-        const after = new Map((r[part] || []).map((i) => [i[0], i]));
-        const label = part === "side" ? " (accompagnement)" : "";
-        for (const [n, i] of before) if (!after.has(n)) lines.push(`• Retiré${label} : ${n}`);
-        for (const [n, i] of after) {
-          const b = before.get(n);
-          const q = (x) => (x[1] ? `${String(x[1]).replace(".", ",")} ${x[2]}`.trim() : "au placard");
-          if (!b) lines.push(`• Ajouté${label} : ${n}, ${q(i)}`);
-          else if (b[1] !== i[1] || b[2] !== i[2] || b[3] !== i[3]) lines.push(`• ${n}${label} : ${q(b)} → ${q(i)}`);
-        }
-      }
-    }
-    return lines.join("\n");
   }
 
   function renderRecipes() {
@@ -704,8 +675,7 @@
     const list = RECIPES.filter(match).sort((a, b) => (b.tmx ? 1 : 0) - (a.tmx ? 1 : 0) || a.name.localeCompare(b.name, "fr"));
     view.innerHTML = `<input class="search" type="search" placeholder="Chercher un plat ou un ingrédient" value="${esc(renderRecipes.q || "")}" data-act="search">
       <div class="seg filters" role="group" aria-label="Filtrer">${FILTERS.map(([k, l]) => `<button data-act="filter" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>
-      ${nEdits ? `<div class="notice row"><span class="grow">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} adaptée${nEdits > 1 ? "s" : ""} pour le menu de cette semaine.</span>
-        <button class="btn" data-act="copy-edits">Copier</button></div>` : ""}
+      ${nEdits ? `<div class="notice">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} adaptée${nEdits > 1 ? "s" : ""} pour le menu en cours.</div>` : ""}
       ${list.map((r) => {
         const editing = draft && draft.id === r.id;
         return `<details class="recipe ${isDish(r) && isOff(r) ? "off" : ""} ${editing ? "editing" : ""}" data-id="${r.id}" ${editing || openRecipes.has(r.id) ? "open" : ""}>
@@ -714,7 +684,7 @@
           ${r.edited ? "✎" : ""}${r.love === 2 ? "★" : ""}</summary>
           <div class="body">${recipeBody(r)}</div></details>`;
       }).join("") || `<p class="muted">Aucune recette.</p>`}
-      <p class="small muted" style="margin-top:16px">Les recettes et leurs modifications permanentes viennent du tableau « Base de recettes de la famille ». Les adaptations faites ici ne valent que pour la semaine en cours ; « Copier » en donne le résumé à reporter dans le tableau.</p>`;
+      <p class="small muted" style="margin-top:16px">Les recettes et leurs adaptations permanentes viennent du tableau « Base de recettes de la famille ». Une recette adaptée ici ne vaut que pour le menu en cours et n'est pas gardée.</p>`;
   }
 
   // Relit les champs de l'éditeur dans le brouillon (avant d'ajouter ou de supprimer une ligne).
@@ -742,7 +712,7 @@
     else S.weekEdits[draft.id] = { ing, side };
     const back = draft.from;
     draft = null;
-    afterRecipeChange(same ? "Aucun changement." : "Recette adaptée pour cette semaine.");
+    afterRecipeChange(same ? "Aucun changement." : "Recette adaptée pour ce menu.");
     if (back) tab = back;
   }
 
@@ -866,7 +836,6 @@
         draft = null;
         afterRecipeChange("Recette d'origine rétablie.");
         break;
-      case "copy-edits": copy(editsAsText(), "Adaptations copiées."); return;
       default: return;
     }
     save();
