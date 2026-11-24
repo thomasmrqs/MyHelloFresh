@@ -13,8 +13,37 @@
   const FISH_DAYS = [4, 5, 6]; // poissonnier ouvert le vendredi matin
   const RAYON_ORDER = ["boucher", "poissonnier", "legumes", "cremerie", "frais", "boulangerie", "epicerie", "surgeles", "autre", "placard"];
 
-  const byId = Object.fromEntries(window.RECIPES.map((r) => [r.id, r]));
   const RAYONS = window.RAYONS;
+
+  // Adaptations permanentes du tableau (modifications.js), appliquées sur les recettes d'origine.
+  (function applyModifications() {
+    const norm = (x) => String(x || "").trim().toLowerCase();
+    const recipes = Object.fromEntries(window.RECIPES.map((r) => [r.id, r]));
+    for (const [id, a] of Object.entries(window.MODIFICATIONS || {})) {
+      const r = recipes[id];
+      if (!r || !a) continue;
+      r.ing = r.ing.map((i) => [...i]); r.side = (r.side || []).map((i) => [...i]);
+      r.adapt = a.text;
+      for (const m of a.changes || []) {
+      const part = m.part === "Accompagnement" ? "side" : "ing";
+      const find = () => {
+        for (const p of [part, part === "ing" ? "side" : "ing"]) {
+          const i = r[p].findIndex((x) => norm(x[0]) === norm(m.ing));
+          if (i >= 0) return [p, i];
+        }
+        return [null, -1];
+      };
+      const [p, i] = find();
+      const line = p ? r[p][i] : null;
+      if (m.action === "Supprimer" && line) r[p].splice(i, 1);
+      else if (m.action === "Remplacer" && line) r[p][i] = [m.new || line[0], m.qty ?? line[1], m.unit ?? (m.qty != null ? "" : line[2]), m.rayon || line[3]];
+      else if (m.action === "Changer la quantité" && line) r[p][i] = [line[0], m.qty || 0, m.unit ?? line[2], m.rayon || line[3]];
+      else if (m.action === "Ajouter" && m.new) r[part].push([m.new, m.qty || 0, m.unit || "", m.rayon || (m.qty ? "epicerie" : "placard")]);
+      }
+    }
+  })();
+  const COOKIDOO = "https://cookidoo.fr/recipes/recipe/fr-FR/";
+  const DINNER_SERVINGS = 4;
   const $ = (sel, el = document) => el.querySelector(sel);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -46,25 +75,51 @@
   function shiftWeek(iso, n) { const d = parseIso(iso); d.setDate(d.getDate() + 7 * n); return isoDate(d); }
 
   // ---------- État ----------
-  const prefs = store.get("prefs", { excluded: [], history: [], target: 7 });
+  const prefs = Object.assign({ excluded: [], included: [], history: [], target: 7 }, store.get("prefs", {}));
+  delete prefs.edits;
+
+  // Recettes « effectives » : celles du tableau de la famille (recipes.js, modifications permanentes
+  // déjà appliquées), plus les modifications faites pour le menu de la semaine en cours.
+  let RECIPES = [], byId = {}, weekEdits = {};
+  function refreshRecipes() {
+    RECIPES = window.RECIPES.map((r) => {
+      const e = weekEdits[r.id];
+      return e ? { ...r, ing: e.ing, side: e.side, edited: true } : r;
+    });
+    byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
+  }
+  refreshRecipes();
+  const original = Object.fromEntries(window.RECIPES.map((r) => [r.id, r]));
+  const isDish = (r) => (r.kind || "plat") === "plat";
+  const isOff = (r) => prefs.excluded.includes(r.id) || (!!r.defaultOff && !prefs.included.includes(r.id));
+  // Pour la liste de courses : un plat Thermomix est ramené à un dîner de 4 ; le reste se fait en entier.
+  const scaleOf = (r) => (r.serves && isDish(r) ? DINNER_SERVINGS / r.serves : 1);
+
   let S = store.get("state", null) || freshState();
+  if (!S.extras) S.extras = [];
+  if (!S.weekEdits) S.weekEdits = {};
+  function useWeekEdits() { weekEdits = S.weekEdits; refreshRecipes(); }
+  useWeekEdits();
+  // Nouvelles recettes arrivées depuis la dernière visite : on refait la pile de cartes.
+  if (!S.plan && RECIPES.some((r) => isDish(r) && !isOff(r) && !S.deck.includes(r.id) && !S.kept.includes(r.id))) S.deck = buildDeck(S.kept);
   let shared = store.get("shared", null); // liste reçue par lien
   let tab = "menu";
   let coursesView = "mine";
   let lastDecision = null;
 
   function freshState(week) {
-    return { week: week || defaultWeek(), kept: [], deck: buildDeck([]), plan: null, list: null };
+    return { week: week || defaultWeek(), kept: [], deck: buildDeck([]), plan: null, list: null, extras: [], weekEdits: {} };
   }
   function save() { store.set("state", S); store.set("prefs", prefs); }
 
   function buildDeck(kept) {
     const recent = new Set(prefs.history.slice(-1).flat());
-    const ex = new Set(prefs.excluded);
-    return window.RECIPES
-      .filter((r) => !ex.has(r.id) && !kept.includes(r.id))
+    return RECIPES
+      .filter((r) => isDish(r) && !isOff(r) && !kept.includes(r.id))
       .map((r) => {
         let w = r.love === 2 ? 3 : 1.5;
+        if (r.tmx) w *= 3; // recettes Thermomix testées et validées : toujours en priorité
+        else if (r.url) w *= 2; // puis les mijotés Cookeo bien notés sur 750g
         if (recent.has(r.id)) w *= 0.25;
         return { id: r.id, k: -Math.log(Math.random()) / w };
       })
@@ -78,7 +133,7 @@
     const red = S.kept.filter((id) => byId[id].tags.includes("viandeRouge")).length;
     for (const id of S.deck) {
       const r = byId[id];
-      if (!r) continue;
+      if (!r || !isDish(r) || isOff(r)) continue;
       if (r.tags.includes("poissonnier") && freshFish >= FISH_DAYS.length) continue;
       if (r.tags.includes("viandeRouge") && red >= 3) continue;
       return r;
@@ -137,9 +192,9 @@
   // Midi du jour d = restes du dîner de la veille s'ils se transportent, sinon un plat à préparer.
   function fillLunches(plan) {
     const used = new Set(plan.dinners.filter(Boolean));
-    const spare = window.RECIPES
-      .filter((r) => r.box && !prefs.excluded.includes(r.id) && !r.tags.includes("poissonnier"))
-      .sort((a, b) => b.love - a.love)
+    const spare = RECIPES
+      .filter((r) => isDish(r) && r.box && !isOff(r) && !r.tags.includes("poissonnier"))
+      .sort((a, b) => (b.tmx ? 3 : b.url ? 2 : 0) + b.love - ((a.tmx ? 3 : a.url ? 2 : 0) + a.love))
       .map((r) => r.id);
     const pickSpare = () => {
       const id = spare.find((x) => !used.has(x)) || spare[0];
@@ -186,6 +241,7 @@
         occ.push({ id: l.id, factor: f, day: d === 0 ? -1 : d - 1, lunch: true });
       }
     });
+    (S.extras || []).forEach((id) => { if (byId[id]) occ.push({ id, factor: 1, day: -2, extra: true }); });
     return occ;
   }
 
@@ -200,25 +256,28 @@
     if (unit === "cl" && q >= 100) return (q / 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " L";
     if (unit === "pc") return String(q);
     let u = unit;
-    if (q > 1 && ["boîte", "paquet", "pot", "bouteille", "portion"].includes(unit)) u = unit === "boîte" ? "boîtes" : unit + "s";
+    if (q > 1 && ["boîte", "paquet", "pot", "bouteille", "portion", "bouquet"].includes(unit)) u = unit === "boîte" ? "boîtes" : unit + "s";
     return `${q} ${u}`;
   }
-  const dayName = (d) => (d === -1 ? "prépa du dim." : DAYS_SHORT[d]);
+  const dayName = (d) => (d === -1 ? "prépa du dim." : d === -2 ? "extras" : DAYS_SHORT[d]);
 
   function buildList(plan, previous) {
     const map = new Map();
     for (const o of occurrences(plan)) {
-      for (const [name, qty, unit, rayon] of byId[o.id].ing) {
+      const r = byId[o.id];
+      if (!r) continue;
+      const lines = [...r.ing.map((i) => [i, scaleOf(r)]), ...(r.side || []).map((i) => [i, 1])];
+      for (const [[name, qty, unit, rayon], scale] of lines) {
         const key = name + "|" + unit;
         const it = map.get(key) || { key, name, unit, rayon, raw: 0, days: new Set() };
-        it.raw += qty * o.factor;
+        it.raw += (Number(qty) || 0) * o.factor * scale;
         it.days.add(o.day);
         map.set(key, it);
       }
     }
     const prevDone = new Map((previous?.items || []).map((i) => [i.key, i]));
     const items = [...map.values()].map((it) => {
-      const qty = it.rayon === "placard" ? 0 : roundQty(it.raw, it.unit);
+      const qty = it.rayon === "placard" || !it.raw ? 0 : roundQty(it.raw, it.unit);
       const days = [...it.days].sort((a, b) => a - b);
       const old = prevDone.get(it.key);
       return {
@@ -368,7 +427,10 @@
     const map = { fromage: "🧀 Fromage", poisson: "🐟 Poisson", legumineuses: "🫘 Légumineuses", vege: "🥦 Végétarien", viandeRouge: "🥩 Viande rouge" };
     const chips = r.tags.filter((t) => map[t]).map((t) => `<span class="chip">${map[t]}</span>`);
     if (r.love === 2) chips.unshift(`<span class="chip ok">★ Préféré</span>`);
-    if (r.box) chips.push(`<span class="chip">🥡 Se transporte</span>`);
+    if (r.tmx) chips.unshift(`<span class="chip tmx">Thermomix</span>`);
+    if (r.url) chips.unshift(`<span class="chip tmx">${esc(r.source || "Web")} ★ ${esc(r.rating || "")}</span>`);
+    if (r.edited) chips.push(`<span class="chip warn">✎ Adaptée pour ce menu</span>`);
+    if (r.box && isDish(r)) chips.push(`<span class="chip">🥡 Se transporte</span>`);
     return chips.join("");
   }
 
@@ -380,6 +442,7 @@
       <div class="meta">${esc(r.tool)}${r.note ? " · " + esc(r.note) : ""}</div>
       <div class="chips">${tagChips(r)}</div>
       ${r.kid ? `<div class="kidnote">👧 ${esc(r.kid)}</div>` : ""}
+      ${cls === "top" ? `<button class="btn ghost adapt" data-act="ed-open" data-id="${r.id}">✎ Adapter la recette</button>` : ""}
     </article>`;
   }
 
@@ -388,6 +451,7 @@
     let x0 = 0, y0 = 0, dx = 0, active = false, horizontal = null;
     const yes = $(".stamp.yes", card), no = $(".stamp.no", card);
     card.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return; // le bouton « Adapter » reste un bouton
       active = true; horizontal = null; x0 = e.clientX; y0 = e.clientY; dx = 0;
       card.setPointerCapture(e.pointerId);
     });
@@ -426,9 +490,9 @@
   }
 
   function recipeOptions(selected, { allowEmpty = false, boxOnly = false } = {}) {
-    const list = window.RECIPES.filter((r) => (!boxOnly || r.box)).slice().sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    const list = RECIPES.filter((r) => isDish(r) && (!boxOnly || r.box)).sort((a, b) => a.name.localeCompare(b.name, "fr"));
     return (allowEmpty ? `<option value="">Soir libre / restes</option>` : "") +
-      list.map((r) => `<option value="${r.id}" ${r.id === selected ? "selected" : ""}>${esc(r.name)}</option>`).join("");
+      list.map((r) => `<option value="${r.id}" ${r.id === selected ? "selected" : ""}>${esc(r.name)}${r.tmx ? " (Thermomix)" : ""}</option>`).join("");
   }
 
   function renderPlan() {
@@ -460,14 +524,22 @@
         <div class="dish"><span class="em" aria-hidden="true">${r ? r.emoji : "🌙"}</span>
           <div class="grow"><div class="name">${r ? esc(r.name) : "Soir libre ou restes"}</div>
           ${r ? `<div class="small muted">${esc(r.tool)}${r.note ? " · " + esc(r.note) : ""}</div>` : ""}
-          ${r && r.kid ? `<div class="small" style="color:var(--warn)">👧 ${esc(r.kid)}</div>` : ""}</div></div>
+          ${r && r.kid ? `<div class="small" style="color:var(--warn)">👧 ${esc(r.kid)}</div>` : ""}
+          ${r ? `<button class="linkbtn" data-act="ed-open" data-id="${r.id}">${r.edited ? "✎ Adaptée pour ce menu" : "✎ Adapter la recette"}</button>` : ""}</div></div>
         ${warns.map((w) => `<div class="warnline">⚠️ ${w}</div>`).join("")}
         ${lunch}
       </section>`;
     }).join("");
+    const extras = (S.extras || []).filter((id) => byId[id]);
+    const extrasHtml = `<div class="section-title">Goûters, desserts et extras</div>
+      ${extras.length ? `<div class="items">${extras.map((id) => `<div class="item"><span style="font-size:22px" aria-hidden="true">${byId[id].emoji}</span>
+        <span class="grow">${esc(byId[id].name)}<br><span class="small muted">${esc(byId[id].tool)}</span></span>
+        <button class="del" data-act="extra" data-id="${id}" aria-label="Retirer ${esc(byId[id].name)}">✕</button></div>`).join("")}</div>`
+        : `<p class="small muted">Ajoutez un gâteau, des crêpes ou une purée depuis l'onglet Recettes : ses ingrédients iront dans la liste de courses.</p>`}`;
     view.innerHTML = `
       <div class="chips" style="margin-bottom:12px">${chips}</div>
       ${days}
+      ${extrasHtml}
       <div class="stack" style="margin-top:16px">
         <button class="btn primary block" data-act="make-list">🛒 ${S.list ? "Mettre à jour la liste de courses" : "Faire la liste de courses"}</button>
         <button class="btn ghost block" data-act="reset" id="reset">Recommencer un nouveau menu</button>
@@ -523,22 +595,136 @@
       ${list.items.some((i) => i.done) ? `<button class="btn ghost block" data-act="clear-done" style="margin-top:8px">Retirer les articles cochés</button>` : ""}`;
   }
 
+  // ---------- Recettes et modification des recettes ----------
+  const FILTERS = [
+    ["all", "Tout"], ["tmx", "Thermomix"], ["plat", "Plats"], ["accompagnement", "Accomp."], ["dessert", "Desserts"],
+  ];
+  const kindLabel = { accompagnement: "Accompagnement", dessert: "Dessert, goûter", base: "Base (pâte, sauce)" };
+  let draft = null; // recette en cours de modification : { id, ing, side }
+  const openRecipes = new Set();
+
+  function fmtIng([n, q, u]) { return esc(n) + (q ? " · " + esc(fmtQty(Number(q), u)) : ""); }
+
+  function servingsLine(r) {
+    if (!r.serves) return isDish(r) ? "Quantités pour un dîner à 4." : "";
+    if (isDish(r)) return `Quantités de la recette d'origine (${r.serves} portions). La liste de courses les ramène à un dîner à 4.`;
+    return `Quantités pour la recette entière (${r.serves} ${r.kind === "dessert" ? "parts" : "portions"}).`;
+  }
+
+  function editorHtml(r) {
+    const rayonOpts = (sel) => Object.entries(RAYONS).filter(([k]) => k !== "autre")
+      .map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${esc(v.label)}</option>`).join("");
+    const rows = (part) => draft[part].map(([n, q, u, ray], i) => `<div class="ed-row" data-part="${part}" data-i="${i}">
+        <input class="ed-name" data-f="name" value="${esc(n)}" placeholder="Ingrédient" aria-label="Ingrédient">
+        <input class="ed-qty" data-f="qty" value="${q ? esc(String(q).replace(".", ",")) : ""}" inputmode="decimal" placeholder="Qté" aria-label="Quantité">
+        <input class="ed-unit" data-f="unit" value="${esc(u)}" list="units" placeholder="unité" aria-label="Unité">
+        <select class="ed-rayon" data-f="rayon" aria-label="Rayon">${rayonOpts(ray)}</select>
+        <button class="del" data-act="ed-del" data-part="${part}" data-i="${i}" aria-label="Supprimer ${esc(n)}">✕</button>
+      </div>`).join("");
+    return `<div class="editor">
+      <p class="small muted">${r.serves ? `Quantités pour ${r.serves} portions, comme sur la recette d'origine.` : "Quantités pour un dîner à 4."}
+        Changez un nom pour remplacer un ingrédient, une quantité, ou supprimez une ligne avec ✕. Une quantité vide = à vérifier au placard.
+        Ce changement ne vaut que pour le menu en cours et ne sera pas gardé.</p>
+      ${rows("ing")}
+      <button class="btn ghost" data-act="ed-add" data-part="ing">＋ Ajouter un ingrédient</button>
+      ${isDish(r) ? `<div class="section-title">Accompagnement (pour 4)</div>${rows("side")}
+      <button class="btn ghost" data-act="ed-add" data-part="side">＋ Ajouter un accompagnement</button>` : ""}
+      <div class="sharebar" style="margin-top:10px">
+        <button class="btn primary" data-act="ed-save">Valider pour ce menu</button>
+        <button class="btn" data-act="ed-cancel">Annuler</button>
+      </div>
+      ${r.edited ? `<button class="btn ghost block" data-act="ed-reset" data-id="${r.id}">Revenir à la recette du tableau</button>` : ""}
+      <datalist id="units"><option value="g"><option value="cl"><option value="pc"><option value="boîte"><option value="bouquet"><option value="tranches"><option value="paquet"><option value="pot"></datalist>
+    </div>`;
+  }
+
+  function recipeBody(r) {
+    if (draft && draft.id === r.id) return editorHtml(r);
+    const off = isOff(r);
+    const inWeek = (S.extras || []).includes(r.id);
+    return `<div class="chips">${tagChips(r)}</div>
+      ${r.kid ? `<p style="color:var(--warn)">👧 ${esc(r.kid)}</p>` : ""}${r.note ? `<p class="muted">${esc(r.note)}</p>` : ""}
+      ${r.adapt ? `<p class="small"><b>Adaptations du tableau :</b> ${esc(r.adapt)}</p>` : ""}
+      <ul>${r.ing.map((i) => `<li>${fmtIng(i)}</li>`).join("")}</ul>
+      ${r.side && r.side.length ? `<p class="small"><b>Accompagnement</b> (pour 4) : ${r.side.map(fmtIng).join(", ")}</p>` : ""}
+      <p class="small muted">${servingsLine(r)}</p>
+      ${r.tmx ? `<p class="small"><a href="${COOKIDOO}${r.tmx}" target="_blank" rel="noopener">Ouvrir la recette sur Cookidoo ↗</a></p>` : ""}
+      ${r.url ? `<p class="small"><a href="${esc(r.url)}" target="_blank" rel="noopener">Ouvrir la recette sur ${esc(r.source || "le site")} ↗</a></p>` : ""}
+      <div class="sharebar">
+        <button class="btn" data-act="ed-open" data-id="${r.id}">✎ Modifier</button>
+        ${isDish(r)
+          ? `<button class="btn" data-act="toggle-ex" data-id="${r.id}">${off ? "Proposer à nouveau" : "Ne plus proposer"}</button>`
+          : `<button class="btn ${inWeek ? "" : "primary"}" data-act="extra" data-id="${r.id}">${inWeek ? "Retirer de la semaine" : "Ajouter à la semaine"}</button>`}
+      </div>`;
+  }
+
   function renderRecipes() {
-    setHeader("Recettes", `${window.RECIPES.length} plats · ${prefs.excluded.length} mis de côté`);
+    const dishes = RECIPES.filter(isDish);
+    const nEdits = Object.keys(weekEdits).length;
+    setHeader("Recettes", `${dishes.length} plats dont ${dishes.filter((r) => r.tmx).length} Thermomix · ${dishes.filter(isOff).length} mis de côté`);
+    const f = renderRecipes.filter || "all";
     const q = (renderRecipes.q || "").toLowerCase();
-    const list = window.RECIPES.filter((r) => !q || r.name.toLowerCase().includes(q) || r.ing.some((i) => i[0].toLowerCase().includes(q)));
+    const match = (r) => {
+      if (f === "tmx" && !r.tmx) return false;
+      if (f === "plat" && !isDish(r)) return false;
+      if (f === "accompagnement" && !["accompagnement", "base"].includes(r.kind)) return false;
+      if (f === "dessert" && r.kind !== "dessert") return false;
+      return !q || r.name.toLowerCase().includes(q) || [...r.ing, ...(r.side || [])].some((i) => i[0].toLowerCase().includes(q));
+    };
+    // Thermomix d'abord, puis ordre alphabétique.
+    const list = RECIPES.filter(match).sort((a, b) => (b.tmx ? 1 : 0) - (a.tmx ? 1 : 0) || a.name.localeCompare(b.name, "fr"));
     view.innerHTML = `<input class="search" type="search" placeholder="Chercher un plat ou un ingrédient" value="${esc(renderRecipes.q || "")}" data-act="search">
+      <div class="seg filters" role="group" aria-label="Filtrer">${FILTERS.map(([k, l]) => `<button data-act="filter" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>
+      ${nEdits ? `<div class="notice">✎ ${nEdits} recette${nEdits > 1 ? "s" : ""} adaptée${nEdits > 1 ? "s" : ""} pour le menu en cours.</div>` : ""}
       ${list.map((r) => {
-        const off = prefs.excluded.includes(r.id);
-        return `<details class="recipe ${off ? "off" : ""}"><summary><span style="font-size:26px" aria-hidden="true">${r.emoji}</span>
-          <span class="grow"><strong>${esc(r.name)}</strong><br><span class="small muted">${esc(r.tool)}</span></span>${r.love === 2 ? "★" : ""}</summary>
-          <div class="body"><div class="chips">${tagChips(r)}</div>
-          ${r.kid ? `<p style="color:var(--warn)">👧 ${esc(r.kid)}</p>` : ""}${r.note ? `<p class="muted">${esc(r.note)}</p>` : ""}
-          <ul>${r.ing.map(([n, q2, u]) => `<li>${esc(n)}${q2 ? " · " + esc(fmtQty(q2, u)) : ""}</li>`).join("")}</ul>
-          <p class="small muted">Quantités pour un dîner à 4.</p>
-          <button class="btn" data-act="toggle-ex" data-id="${r.id}">${off ? "Proposer à nouveau" : "Ne plus proposer"}</button></div></details>`;
-      }).join("")}
-      <p class="small muted" style="margin-top:16px">Pour ajouter une recette, demandez-le à Claude dans le projet.</p>`;
+        const editing = draft && draft.id === r.id;
+        return `<details class="recipe ${isDish(r) && isOff(r) ? "off" : ""} ${editing ? "editing" : ""}" data-id="${r.id}" ${editing || openRecipes.has(r.id) ? "open" : ""}>
+          <summary><span style="font-size:26px" aria-hidden="true">${r.emoji}</span>
+          <span class="grow"><strong>${esc(r.name)}</strong><br><span class="small muted">${r.kind ? esc(kindLabel[r.kind]) + " · " : ""}${esc(r.tool)}</span></span>
+          ${r.edited ? "✎" : ""}${r.love === 2 ? "★" : ""}</summary>
+          <div class="body">${recipeBody(r)}</div></details>`;
+      }).join("") || `<p class="muted">Aucune recette.</p>`}
+      <p class="small muted" style="margin-top:16px">Les recettes et leurs adaptations permanentes viennent du tableau « Base de recettes de la famille ». Une recette adaptée ici ne vaut que pour le menu en cours et n'est pas gardée.</p>`;
+  }
+
+  // Relit les champs de l'éditeur dans le brouillon (avant d'ajouter ou de supprimer une ligne).
+  function syncDraft() {
+    if (!draft) return;
+    document.querySelectorAll(".ed-row").forEach((row) => {
+      const line = draft[row.dataset.part][Number(row.dataset.i)];
+      if (!line) return;
+      const get = (f) => $(`[data-f="${f}"]`, row).value;
+      const qty = parseFloat(get("qty").replace(",", "."));
+      line[0] = get("name").trim();
+      line[1] = Number.isFinite(qty) && qty > 0 ? qty : 0;
+      line[2] = get("unit").trim();
+      line[3] = get("rayon");
+    });
+  }
+
+  function saveDraft() {
+    syncDraft();
+    const clean = (arr) => arr.filter((i) => i[0]).map(([n, q, u, r]) => [n, q, q ? u : "", r]);
+    const o = original[draft.id];
+    const ing = clean(draft.ing), side = clean(draft.side);
+    const same = JSON.stringify(ing) === JSON.stringify(o.ing) && JSON.stringify(side) === JSON.stringify(o.side || []);
+    if (same) delete S.weekEdits[draft.id];
+    else S.weekEdits[draft.id] = { ing, side };
+    const back = draft.from;
+    draft = null;
+    afterRecipeChange(same ? "Aucun changement." : "Recette adaptée pour ce menu.");
+    if (back) tab = back;
+  }
+
+  function afterRecipeChange(msg) {
+    useWeekEdits();
+    if (S.plan && S.list) {
+      const week = S.list.week;
+      S.list = buildList(S.plan, S.list);
+      S.list.week = week;
+      msg += " Liste de courses mise à jour.";
+    }
+    toast(msg);
   }
 
   // ---------- Actions ----------
@@ -578,6 +764,8 @@
         if (S.plan) prefs.history = [...prefs.history, S.plan.dinners.filter(Boolean)].slice(-4);
         S = freshState(S.plan ? shiftWeek(S.week, 1) : S.week);
         lastDecision = null;
+        draft = null;
+        useWeekEdits();
         break;
       case "go-menu": tab = "menu"; break;
       case "view-mine": coursesView = "mine"; break;
@@ -606,11 +794,48 @@
       }
       case "toggle-ex": {
         const id = t.dataset.id;
-        prefs.excluded = prefs.excluded.includes(id) ? prefs.excluded.filter((x) => x !== id) : [...prefs.excluded, id];
-        S.deck = S.deck.filter((x) => !prefs.excluded.includes(x));
-        if (!prefs.excluded.includes(id) && !S.deck.includes(id) && !S.kept.includes(id)) S.deck.push(id);
+        const r = byId[id];
+        if (isOff(r)) {
+          prefs.excluded = prefs.excluded.filter((x) => x !== id);
+          if (r.defaultOff && !prefs.included.includes(id)) prefs.included = [...prefs.included, id];
+          if (!S.deck.includes(id) && !S.kept.includes(id)) S.deck.push(id);
+        } else {
+          prefs.excluded = [...prefs.excluded, id];
+          prefs.included = prefs.included.filter((x) => x !== id);
+          S.deck = S.deck.filter((x) => x !== id);
+        }
         break;
       }
+      case "filter": renderRecipes.filter = t.dataset.f; break;
+      case "extra": {
+        const id = t.dataset.id;
+        S.extras = (S.extras || []).includes(id) ? S.extras.filter((x) => x !== id) : [...(S.extras || []), id];
+        const added = S.extras.includes(id);
+        if (S.plan && S.list) { const w = S.list.week; S.list = buildList(S.plan, S.list); S.list.week = w; }
+        toast(added ? `${byId[id].name} : ajouté à la semaine${S.list ? ", liste de courses mise à jour" : ""}.` : "Retiré de la semaine.");
+        break;
+      }
+      case "ed-open": {
+        const r = byId[t.dataset.id];
+        draft = { id: r.id, ing: r.ing.map((i) => [...i]), side: (r.side || []).map((i) => [...i]), from: tab === "recettes" ? null : tab };
+        openRecipes.add(r.id);
+        if (tab !== "recettes") {
+          tab = "recettes"; renderRecipes.filter = "all"; renderRecipes.q = "";
+          save(); render();
+          document.querySelector(`details[data-id="${r.id}"]`)?.scrollIntoView({ block: "start" });
+          return;
+        }
+        break;
+      }
+      case "ed-add": syncDraft(); draft[t.dataset.part].push(["", 0, "", t.dataset.part === "side" ? "surgeles" : "legumes"]); break;
+      case "ed-del": syncDraft(); draft[t.dataset.part].splice(Number(t.dataset.i), 1); break;
+      case "ed-cancel": { const back = draft && draft.from; draft = null; if (back) tab = back; break; }
+      case "ed-save": saveDraft(); break;
+      case "ed-reset":
+        delete S.weekEdits[t.dataset.id];
+        draft = null;
+        afterRecipeChange("Recette d'origine rétablie.");
+        break;
       default: return;
     }
     save();
@@ -663,7 +888,13 @@
     inp.setSelectionRange(pos, pos);
   });
 
-  document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(); window.scrollTo(0, 0); }));
+  document.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (!d.matches || !d.matches("details.recipe")) return;
+    if (d.open) openRecipes.add(d.dataset.id); else openRecipes.delete(d.dataset.id);
+  }, true);
+
+  document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => { if (draft) syncDraft(); tab = b.dataset.tab; render(); window.scrollTo(0, 0); }));
   window.addEventListener("hashchange", () => readHash().then(render));
 
   let toastTimer;

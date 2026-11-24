@@ -194,3 +194,23 @@ details.menu-recap summary { cursor: pointer; color: var(--accent); font-weight:
   opacity: 0; pointer-events: none; transition: all .25s ease; max-width: calc(100% - 32px); z-index: 20;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Thermomix et modification des recettes */
+.chip.tmx { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg.filters button { padding: 8px 2px; font-size: 13px; }
+.recipe a { color: var(--accent); font-weight: 600; }
+.recipe.editing .body { padding-left: 12px; }
+.editor .ed-row {
+  display: grid; grid-template-columns: 58px 64px 1fr 32px; gap: 6px; align-items: center;
+  padding: 8px 0; border-top: 1px solid var(--line);
+}
+.editor .ed-name { grid-column: 1 / -1; }
+.editor input, .editor select {
+  min-width: 0; width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); min-height: 40px; font-size: 16px;
+}
+.editor .del { border: 0; background: none; color: var(--no); font-size: 18px; width: 36px; height: 36px; }
+.editor > .btn.ghost { padding-left: 0; color: var(--accent); }
+.notice .btn { min-height: 36px; padding: 6px 12px; }
+.swipe .adapt { align-self: flex-start; margin-top: 8px; padding-left: 0; color: var(--accent); }
+.linkbtn { border: 0; background: none; padding: 4px 0; color: var(--accent); font-size: 13px; font-weight: 600; }
