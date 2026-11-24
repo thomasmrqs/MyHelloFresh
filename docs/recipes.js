@@ -190,6 +190,7 @@ window.RECIPES = [
   },
 
   // ---------- Plats mijotés au Cookeo (750g.com, 4 étoiles ou plus et plus de 20 avis) ----------
+  // Seulement pour les plats qui n'ont pas de version Thermomix : le Thermomix reste la priorité.
   // Quantités de la recette d'origine (voir « serves ») ; l'app les ramène à un dîner de 4.
   {
     id: "bourguignon", name: "Bœuf bourguignon", emoji: "🍷", love: 1, tags: ["viandeRouge"], box: true,
@@ -226,25 +227,6 @@ window.RECIPES = [
       ["Crème fraîche", 20, "cl", "cremerie"], P("Moutarde"), P("Bouquet garni"), P("Bouillon de légumes"), P("Farine"), P("Beurre")],
     side: [["Pommes de terre", 1000, "g", "legumes"], ["Haricots verts surgelés", 600, "g", "surgeles"]],
   },
-  // Autres plats mijotés au Cookeo de la famille
-  {
-    id: "porc-caramel", name: "Porc au caramel, riz", emoji: "🍖", love: 2, tags: [], box: true,
-    tool: "Cookeo, 15 min",
-    ing: [["Échine de porc", 800, "g", "boucher"], ["Oignons", 2, "pc", "legumes"], ["Carottes", 4, "pc", "legumes"],
-      ["Riz", 300, "g", "epicerie"], P("Sucre"), P("Sauce soja"), P("Ail")],
-  },
-  {
-    id: "petit-sale", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true,
-    tool: "Cookeo, 10 min",
-    ing: [["Petit salé", 800, "g", "boucher"], ["Lentilles vertes", 400, "g", "epicerie"], ["Carottes", 4, "pc", "legumes"],
-      ["Oignons", 1, "pc", "legumes"], P("Bouquet garni")],
-  },
-  {
-    id: "basquaise", name: "Poulet basquaise sans poivron, riz", emoji: "🍅", love: 1, tags: [], box: true,
-    tool: "Cookeo, 15 min",
-    ing: [["Hauts de cuisse de poulet", 1000, "g", "boucher"], ["Tomates concassées", 2, "boîte", "epicerie"],
-      ["Courgettes", 2, "pc", "legumes"], ["Oignons", 2, "pc", "legumes"], ["Riz", 300, "g", "epicerie"]],
-  },
   // ---------- Recettes Thermomix (Cookidoo) ----------
   // Quantités de la recette d'origine (voir « serves ») ; l'app les ramène à un dîner de 4.
   // Ces plats sont proposés en priorité dans le menu.
@@ -277,10 +259,9 @@ window.RECIPES = [
     side: [["Riz", 100, "g", "epicerie"]],
   },
   {
-    id: "porc-caramel-tmx", name: "Échine au caramel, riz parfumé", emoji: "🍖", love: 2, tags: [], box: true, defaultOff: true,
+    id: "porc-caramel", name: "Échine au caramel, riz parfumé", emoji: "🍖", love: 2, tags: [], box: true,
     tmx: "r308569", serves: 4, tool: "Thermomix, 20 min",
     kid: "Pistaches concassées servies à part pour Olivia",
-    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Échine de porc désossée", 600, "g", "boucher"], ["Riz", 200, "g", "epicerie"], ["Pistaches non salées", 60, "g", "epicerie"],
       ["Gingembre frais", 1, "pc", "legumes"], ["Persil plat", 1, "bouquet", "legumes"],
       P("Sucre"), P("Sauce soja"), P("Cardamome"), P("Quatre-épices"), P("Bouillon de volaille"), P("Huile d'olive")],
@@ -309,17 +290,15 @@ window.RECIPES = [
     side: [["Haricots verts surgelés", 600, "g", "surgeles"]],
   },
   {
-    id: "petit-sale-tmx", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true, defaultOff: true,
+    id: "petit-sale", name: "Petit salé aux lentilles", emoji: "🥘", love: 1, tags: ["legumineuses"], box: true,
     tmx: "r57859", serves: 4, tool: "Thermomix, 5 min",
-    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Petit salé", 400, "g", "boucher"], ["Saucisse de Morteau", 1, "pc", "boucher"], ["Lentilles vertes", 250, "g", "epicerie"],
       ["Carottes", 120, "g", "legumes"], ["Oignons", 1, "pc", "legumes"],
       P("Ail"), P("Clou de girofle"), P("Thym, romarin, laurier"), P("Moutarde")],
   },
   {
-    id: "basquaise-tmx", name: "Poulet basquaise, riz", emoji: "🍅", love: 1, tags: [], box: true, defaultOff: true,
+    id: "basquaise", name: "Poulet basquaise, riz", emoji: "🍅", love: 1, tags: [], box: true,
     tmx: "r431355", serves: 4, tool: "Thermomix, 10 min",
-    note: "Plat mijoté : le menu propose la version Cookeo",
     ing: [["Pilons de poulet", 600, "g", "boucher"], ["Oignons", 2, "pc", "legumes"], ["Poivron vert", 1, "pc", "legumes"],
       ["Poivron rouge", 1, "pc", "legumes"], ["Tomates", 250, "g", "legumes"], ["Vin blanc sec", 20, "cl", "epicerie"],
       P("Ail"), P("Huile d'olive"), P("Thym, laurier")],

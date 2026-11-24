@@ -85,7 +85,8 @@
       .filter((r) => isDish(r) && !isOff(r) && !kept.includes(r.id))
       .map((r) => {
         let w = r.love === 2 ? 3 : 1.5;
-        if (r.tmx || r.url) w *= 3; // Thermomix, et mijotés Cookeo bien notés sur 750g : en priorité
+        if (r.tmx) w *= 3; // recettes Thermomix testées et validées : toujours en priorité
+        else if (r.url) w *= 2; // puis les mijotés Cookeo bien notés sur 750g
         if (recent.has(r.id)) w *= 0.25;
         return { id: r.id, k: -Math.log(Math.random()) / w };
       })
@@ -160,7 +161,7 @@
     const used = new Set(plan.dinners.filter(Boolean));
     const spare = RECIPES
       .filter((r) => isDish(r) && r.box && !isOff(r) && !r.tags.includes("poissonnier"))
-      .sort((a, b) => (b.tmx || b.url ? 2 : 0) + b.love - ((a.tmx || a.url ? 2 : 0) + a.love))
+      .sort((a, b) => (b.tmx ? 3 : b.url ? 2 : 0) + b.love - ((a.tmx ? 3 : a.url ? 2 : 0) + a.love))
       .map((r) => r.id);
     const pickSpare = () => {
       const id = spare.find((x) => !used.has(x)) || spare[0];
